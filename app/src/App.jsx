@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Activity, MessageSquare, TrendingUp, AlertCircle, LogOut, Mic, Send, Camera, Upload, Pill, Plus, Trash2 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { uploadData } from 'aws-amplify/storage';
 
 export default function GlucoseMonitoringApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -106,64 +107,35 @@ export default function GlucoseMonitoringApp() {
     setMedications(medications.filter(m => m.id !== id));
   };
 
-  const handleDatasetUpload = (e) => {
+  const handleDatasetUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target.result;
-      const lines = text.split('\n').filter(line => line.trim());
+    try {
+      const userId = email || 'demo-user';
+      const timestamp = Date.now();
+      const key = `${userId}_${timestamp}_${file.name}`;
       
-      if (lines.length < 2) {
-        alert('CSV needs at least a header and one data row');
-        return;
-      }
-
-      const headers = lines[0].split(',').map(h => h.trim());
-      const data = lines.slice(1).map(line => {
-        const values = line.split(',').map(v => v.trim());
-        const row = {};
-        headers.forEach((header, idx) => {
-          const val = values[idx];
-          row[header] = isNaN(val) ? val : parseFloat(val);
-        });
-        return row;
+      const s3Url = `https://glucoai-datasets.s3.eu-central-1.amazonaws.com/${key}`;
+      
+      await fetch(s3Url, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': 'text/csv'
+        }
       });
 
-      setUploadedDataset({ 
-        fileName: file.name,
-        headers, 
-        data,
-        uploadedAt: new Date().toLocaleString()
-      });
-
-      // Process data for glucose chart
-      if (headers.includes('DeviceDtTm') && headers.includes('Glucose')) {
-        // Take last 48 data points for better visualization (or sample evenly)
-        const sampleSize = 48;
-        const step = Math.floor(data.length / sampleSize);
-        const sampledData = data.filter((_, idx) => idx % step === 0).slice(-sampleSize);
-        
-        const chartData = sampledData.map(row => {
-          const dateTime = new Date(row.DeviceDtTm);
-          const time = dateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-          return {
-            time: time,
-            glucose: row.Glucose,
-            target: 100
-          };
-        });
-
-        setGlucoseData(chartData);
+      alert('✅ Upload successful! Processing data...');
+      
+      setTimeout(() => {
         setActiveTab('dashboard');
-        
-        setTimeout(() => {
-          alert(`Dataset loaded successfully! Showing ${chartData.length} data points on dashboard.`);
-        }, 500);
-      }
-    };
-    reader.readAsText(file);
+      }, 3000);
+
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('❌ Upload failed: ' + error.message);
+    }
   };
 
   const sendMessage = () => {
