@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Activity, MessageSquare, TrendingUp, AlertCircle, LogOut, Mic, Send, Camera, Upload, Pill, Plus, Trash2 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { uploadData } from 'aws-amplify/storage';
 
 export default function GlucoseMonitoringApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -37,7 +36,8 @@ export default function GlucoseMonitoringApp() {
 
   const currentGlucose = glucoseData[glucoseData.length - 1].glucose;
   const avgGlucose = Math.round(glucoseData.reduce((acc, val) => acc + val.glucose, 0) / glucoseData.length);
-
+  const FETCH_DATA_URL = 'https://6cwiyk4o5l5ygmcuo7u64we4bq0srulh.lambda-url.eu-central-1.on.aws/';
+  
   useEffect(() => {
     if (chatMessages.length > 0) {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -54,6 +54,41 @@ export default function GlucoseMonitoringApp() {
         text: `Hello ${email.split('@')[0]}! I'm your AI glucose assistant. I can help you understand your readings, analyze your food photos, review your medications, and provide personalized advice.`,
         timestamp: new Date().toLocaleTimeString()
       }]);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn && activeTab === 'dashboard') {
+      fetchGlucoseData();
+    }
+  }, [isLoggedIn, activeTab]);
+
+  const fetchGlucoseData = async () => {
+    try {
+      const userId = email || 'demo-user';
+      const response = await fetch(`${FETCH_DATA_URL}?userId=${userId}`);
+      const result = await response.json();
+      
+      if (result.data && result.data.length > 0) {
+        // Sample data for better visualization (take every Nth point)
+        const sampleSize = 48;
+        const step = Math.max(1, Math.floor(result.data.length / sampleSize));
+        const sampledData = result.data.filter((_, idx) => idx % step === 0);
+        
+        // Format for chart
+        const chartData = sampledData.map(item => {
+          const date = new Date(item.time);
+          return {
+            time: date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            glucose: item.glucose,
+            target: 100
+          };
+        });
+        
+        setGlucoseData(chartData);
+      }
+    } catch (error) {
+      console.error('Error fetching glucose data:', error);
     }
   };
 
