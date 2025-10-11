@@ -15,6 +15,16 @@ export default function GlucoseMonitoringApp() {
   const [medications, setMedications] = useState([]);
   const [newMed, setNewMed] = useState({ name: '', dosage: '', time: '' });
   const [uploadedDataset, setUploadedDataset] = useState(null);
+  const [profile, setProfile] = useState({
+    fullName: '',
+    age: '',
+    diabetesType: '',
+    diagnosisYear: '',
+    targetGlucoseMin: '80',
+    targetGlucoseMax: '140',
+    weight: '',
+    height: ''
+  });
   const chatEndRef = useRef(null);
   const foodInputRef = useRef(null);
   const datasetInputRef = useRef(null);
@@ -39,6 +49,8 @@ export default function GlucoseMonitoringApp() {
   const FETCH_DATA_URL = 'https://6cwiyk4o5l5ygmcuo7u64we4bq0srulh.lambda-url.eu-central-1.on.aws/';
   const SAVE_MEDICATION_URL = 'https://7xnwpq2rkbpvfmluph4myx6kry0hspem.lambda-url.eu-central-1.on.aws/';
   const GET_MEDICATIONS_URL = 'https://zpzxhtk5sio5zn5yeri4xnewn40bpjks.lambda-url.eu-central-1.on.aws/';
+  const SAVE_PROFILE_URL = 'https://jg45umq5m5df2iq3wjojwqd6hq0cello.lambda-url.eu-central-1.on.aws/';
+  const GET_PROFILE_URL = 'https://aoeav22ztkmxeyh5pnnqhlvc3u0zcrml.lambda-url.eu-central-1.on.aws/';
 
   useEffect(() => {
     if (chatMessages.length > 0) {
@@ -55,6 +67,12 @@ export default function GlucoseMonitoringApp() {
   useEffect(() => {
     if (isLoggedIn) {
       fetchMedications();
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchProfile();
     }
   }, [isLoggedIn]);
 
@@ -148,6 +166,60 @@ export default function GlucoseMonitoringApp() {
       }
     } catch (error) {
       console.error('Error fetching medications:', error);
+    }
+  };
+
+  const fetchProfile = async () => {
+    console.log('🔍 Fetching profile from:', GET_PROFILE_URL);
+    try {
+      const response = await fetch(GET_PROFILE_URL);
+      const result = await response.json();
+      
+      console.log('📥 Fetched profile result:', result);
+      
+      if (result.data) {
+        console.log('✅ Setting profile data:', result.data);
+        setProfile({
+          fullName: result.data.fullName || '',
+          age: result.data.age || '',
+          diabetesType: result.data.diabetesType || '',
+          diagnosisYear: result.data.diagnosisYear || '',
+          targetGlucoseMin: result.data.targetGlucoseMin || '80',
+          targetGlucoseMax: result.data.targetGlucoseMax || '140',
+          weight: result.data.weight || '',
+          height: result.data.height || ''
+        });
+      } else {
+        console.log('⚠️ No profile data found');
+      }
+    } catch (error) {
+      console.error('❌ Error fetching profile:', error);
+    }
+  };
+
+  const saveProfile = async () => {
+    try {
+      const userId = email || 'demo-user';
+      
+      const response = await fetch(SAVE_PROFILE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userId,
+          ...profile
+        })
+      });
+
+      const result = await response.json();
+      
+      if (response.ok) {
+        alert('✅ Profile saved successfully!');
+      } else {
+        alert('❌ Failed to save profile: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      alert('❌ Error saving profile: ' + error.message);
     }
   };
 
@@ -466,15 +538,19 @@ export default function GlucoseMonitoringApp() {
                 <Upload className="w-4 h-4 inline mr-2" />
                 Data Upload
               </button>
+              
               <button
-                onClick={() => setActiveTab('chat')}
+                onClick={() => setActiveTab('profile')}
                 className={`px-4 py-3 font-medium text-sm whitespace-nowrap transition-colors ${
-                  activeTab === 'chat' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:text-gray-900'
+                  activeTab === 'profile' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <MessageSquare className="w-4 h-4 inline mr-2" />
+                <Activity className="w-4 h-4 inline mr-2" />
+                Profile
+              </button>  
+                {/* <MessageSquare className="w-4 h-4 inline mr-2" />
                 AI Assistant
-              </button>
+              </button> */}
             </div>
           </div>
         </div>
@@ -811,6 +887,137 @@ export default function GlucoseMonitoringApp() {
             )}
           </div>
         )}
+
+        {activeTab === 'profile' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Your Health Profile</h3>
+              <p className="text-gray-600 mb-6">Keep your health information up to date</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                  <input
+                    type="text"
+                    value={profile.fullName}
+                    onChange={(e) => setProfile({...profile, fullName: e.target.value})}
+                    placeholder="John Doe"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Age</label>
+                  <input
+                    type="number"
+                    value={profile.age}
+                    onChange={(e) => setProfile({...profile, age: e.target.value})}
+                    placeholder="35"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Diabetes Type</label>
+                  <select
+                    value={profile.diabetesType}
+                    onChange={(e) => setProfile({...profile, diabetesType: e.target.value})}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select type</option>
+                    <option value="Type 1">Type 1</option>
+                    <option value="Type 2">Type 2</option>
+                    <option value="Gestational">Gestational</option>
+                    <option value="Prediabetes">Prediabetes</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Year of Diagnosis</label>
+                  <input
+                    type="number"
+                    value={profile.diagnosisYear}
+                    onChange={(e) => setProfile({...profile, diagnosisYear: e.target.value})}
+                    placeholder="2020"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Target Glucose Min (mg/dL)</label>
+                  <input
+                    type="number"
+                    value={profile.targetGlucoseMin}
+                    onChange={(e) => setProfile({...profile, targetGlucoseMin: e.target.value})}
+                    placeholder="80"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Target Glucose Max (mg/dL)</label>
+                  <input
+                    type="number"
+                    value={profile.targetGlucoseMax}
+                    onChange={(e) => setProfile({...profile, targetGlucoseMax: e.target.value})}
+                    placeholder="140"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Weight (kg)</label>
+                  <input
+                    type="number"
+                    value={profile.weight}
+                    onChange={(e) => setProfile({...profile, weight: e.target.value})}
+                    placeholder="70"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Height (cm)</label>
+                  <input
+                    type="number"
+                    value={profile.height}
+                    onChange={(e) => setProfile({...profile, height: e.target.value})}
+                    placeholder="175"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              
+              <button
+                onClick={saveProfile}
+                className="w-full mt-6 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-semibold py-3 px-6 rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-2"
+              >
+                <Activity className="w-5 h-5" />
+                Save Profile
+              </button>
+            </div>
+            
+            {profile.fullName && (
+              <div className="bg-blue-50 rounded-xl p-6 shadow-sm border border-blue-100">
+                <h4 className="text-lg font-semibold text-blue-900 mb-4">Profile Summary</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white rounded-lg p-4">
+                    <p className="text-xs text-gray-500 mb-1">Patient</p>
+                    <p className="text-sm font-semibold text-gray-900">{profile.fullName}, {profile.age}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-4">
+                    <p className="text-xs text-gray-500 mb-1">Condition</p>
+                    <p className="text-sm font-semibold text-gray-900">{profile.diabetesType || 'Not set'}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-4">
+                    <p className="text-xs text-gray-500 mb-1">Target Range</p>
+                    <p className="text-sm font-semibold text-gray-900">{profile.targetGlucoseMin}-{profile.targetGlucoseMax} mg/dL</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}        
 
         {activeTab === 'chat' && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
