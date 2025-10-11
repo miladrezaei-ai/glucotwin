@@ -1,7 +1,6 @@
 # Dependencies
 app/node_modules/
 node_modules/
-app/package-lock.json
 
 # Build outputs
 app/dist/
