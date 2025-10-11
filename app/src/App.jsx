@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Activity, MessageSquare, TrendingUp, AlertCircle, LogOut, Mic, Send, Camera, Upload, Pill, Plus, Trash2 } from 'lucide-react';
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from 'recharts';
 
 export default function GlucoseMonitoringApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -34,15 +34,122 @@ export default function GlucoseMonitoringApp() {
     { time: '22:00', glucose: 98, target: 100 },
   ]);
 
-  const currentGlucose = glucoseData[glucoseData.length - 1].glucose;
+  const currentGlucose = glucoseData[glucoseData.length - 1]?.glucose;
   const avgGlucose = Math.round(glucoseData.reduce((acc, val) => acc + val.glucose, 0) / glucoseData.length);
   const FETCH_DATA_URL = 'https://6cwiyk4o5l5ygmcuo7u64we4bq0srulh.lambda-url.eu-central-1.on.aws/';
-  
+  const SAVE_MEDICATION_URL = 'https://7xnwpq2rkbpvfmluph4myx6kry0hspem.lambda-url.eu-central-1.on.aws/';
+  const GET_MEDICATIONS_URL = 'https://zpzxhtk5sio5zn5yeri4xnewn40bpjks.lambda-url.eu-central-1.on.aws/';
+
   useEffect(() => {
     if (chatMessages.length > 0) {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (isLoggedIn && activeTab === 'dashboard') {
+      fetchGlucoseData();
+    }
+  }, [isLoggedIn, activeTab]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchMedications();
+    }
+  }, [isLoggedIn]);
+
+  const fetchGlucoseData = async () => {
+    try {
+      const response = await fetch(FETCH_DATA_URL);
+      const result = await response.json();
+
+      if (!result.data?.length) return;
+
+      const sampleSize = 48;
+      const step = Math.max(1, Math.floor(result.data.length / sampleSize));
+      const sampledData = result.data.filter((_, idx) => idx % step === 0);
+
+      const chartData = sampledData.map((item) => {
+        const date = new Date(item.time);
+        const timeStr = date.toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
+        return {
+          time: timeStr,
+          fullDateTime: item.time,
+          glucose: item.glucose,
+          target: 100,
+        };
+      });
+
+      // 🟣 Fetch medications from DynamoDB
+      const medResponse = await fetch(GET_MEDICATIONS_URL);
+      const medResult = await medResponse.json();
+      console.log("💊 DynamoDB meds raw:", medResult.data);
+
+
+      if (medResult.data?.length) {
+        console.log("💊 Checking meds:", medResult.data);
+
+        medResult.data.forEach((med) => {
+          const medDate = new Date(med.date);
+          const medMinutes = medDate.getHours() * 60 + medDate.getMinutes();
+
+          // ✅ Match with nearest glucose reading within ±30 minutes
+          const match = chartData.find((d) => {
+            const [h, m] = d.time.split(":").map(Number);
+            const dataMinutes = h * 60 + m;
+            return Math.abs(medMinutes - dataMinutes) <= 30;
+          });
+
+          if (match) {
+            match.hasMedication = true;
+            match.medication = med.medicationName;
+            match.dosage = med.dosage;
+            console.log(`✅ Matched ${med.medicationName} near ${match.time}`);
+          } else {
+            console.log(`❌ No match for ${med.medicationName}`);
+          }
+        });
+        console.log("💊 DynamoDB meds raw:", medResult.data);
+
+      }
+
+      // 🔹 Add fallback marker if no medication matched (for testing)
+      if (!chartData.some((d) => d.hasMedication)) {
+        chartData[10].hasMedication = true;
+        chartData[10].medication = "DemoMed";
+        chartData[10].dosage = "500mg";
+        console.log("💊 Added demo medication for visualization");
+      }
+
+      setGlucoseData(chartData);
+      console.log("🩸 Glucose times:", chartData.map((d) => d.time));
+    } catch (error) {
+      console.error("Error fetching glucose data:", error);
+    }
+  };
+
+  const fetchMedications = async () => {
+    try {
+      const response = await fetch(GET_MEDICATIONS_URL);
+      const result = await response.json();
+      
+      if (result.data && result.data.length > 0) {
+        const meds = result.data.map(item => ({
+          id: item.timestamp,
+          name: item.medicationName,
+          dosage: item.dosage,
+          time: item.timeOfDay
+        }));
+        setMedications(meds);
+      }
+    } catch (error) {
+      console.error('Error fetching medications:', error);
+    }
+  };
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -54,41 +161,6 @@ export default function GlucoseMonitoringApp() {
         text: `Hello ${email.split('@')[0]}! I'm your AI glucose assistant. I can help you understand your readings, analyze your food photos, review your medications, and provide personalized advice.`,
         timestamp: new Date().toLocaleTimeString()
       }]);
-    }
-  };
-
-  useEffect(() => {
-    if (isLoggedIn && activeTab === 'dashboard') {
-      fetchGlucoseData();
-    }
-  }, [isLoggedIn, activeTab]);
-
-  const fetchGlucoseData = async () => {
-    try {
-      const userId = email || 'demo-user';
-      const response = await fetch(`${FETCH_DATA_URL}?userId=${userId}`);
-      const result = await response.json();
-      
-      if (result.data && result.data.length > 0) {
-        // Sample data for better visualization (take every Nth point)
-        const sampleSize = 48;
-        const step = Math.max(1, Math.floor(result.data.length / sampleSize));
-        const sampledData = result.data.filter((_, idx) => idx % step === 0);
-        
-        // Format for chart
-        const chartData = sampledData.map(item => {
-          const date = new Date(item.time);
-          return {
-            time: date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-            glucose: item.glucose,
-            target: 100
-          };
-        });
-        
-        setGlucoseData(chartData);
-      }
-    } catch (error) {
-      console.error('Error fetching glucose data:', error);
     }
   };
 
@@ -131,10 +203,38 @@ export default function GlucoseMonitoringApp() {
     setFoodPhotos(foodPhotos.filter(p => p.id !== id));
   };
 
-  const addMedication = () => {
+  const addMedication = async () => {
     if (newMed.name && newMed.dosage && newMed.time) {
-      setMedications([...medications, { ...newMed, id: Date.now() }]);
-      setNewMed({ name: '', dosage: '', time: '' });
+      try {
+        const userId = email || 'demo-user';
+        
+        const response = await fetch(SAVE_MEDICATION_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: userId,
+            medicationName: newMed.name,
+            dosage: newMed.dosage,
+            timeOfDay: newMed.time
+          })
+        });
+
+        const result = await response.json();
+        
+        if (response.ok) {
+          setMedications([...medications, { 
+            ...newMed, 
+            id: result.timestamp || Date.now() 
+          }]);
+          setNewMed({ name: '', dosage: '', time: '' });
+          alert('✅ Medication saved successfully!');
+        } else {
+          alert('❌ Failed to save medication: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Error saving medication:', error);
+        alert('❌ Error saving medication: ' + error.message);
+      }
     }
   };
 
@@ -156,14 +256,13 @@ export default function GlucoseMonitoringApp() {
       await fetch(s3Url, {
         method: 'PUT',
         body: file,
-        headers: {
-          'Content-Type': 'text/csv'
-        }
+        headers: { 'Content-Type': 'text/csv' }
       });
 
       alert('✅ Upload successful! Processing data...');
       
       setTimeout(() => {
+        fetchGlucoseData();
         setActiveTab('dashboard');
       }, 3000);
 
@@ -390,7 +489,7 @@ export default function GlucoseMonitoringApp() {
                   <p className="text-sm font-medium text-gray-600">Current Glucose</p>
                   <Activity className="w-5 h-5 text-blue-500" />
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{currentGlucose}</p>
+                <p className="text-3xl font-bold text-gray-900">{currentGlucose || '--'}</p>
                 <p className="text-sm text-gray-500 mt-1">mg/dL</p>
               </div>
 
@@ -399,7 +498,7 @@ export default function GlucoseMonitoringApp() {
                   <p className="text-sm font-medium text-gray-600">24h Average</p>
                   <TrendingUp className="w-5 h-5 text-green-500" />
                 </div>
-                <p className="text-3xl font-bold text-gray-900">{avgGlucose}</p>
+                <p className="text-3xl font-bold text-gray-900">{avgGlucose || '--'}</p>
                 <p className="text-sm text-gray-500 mt-1">mg/dL</p>
               </div>
 
@@ -409,51 +508,132 @@ export default function GlucoseMonitoringApp() {
                   <AlertCircle className="w-5 h-5 text-yellow-500" />
                 </div>
                 <p className="text-2xl font-bold text-gray-900">
-                  {currentGlucose > 140 ? 'High' : currentGlucose < 70 ? 'Low' : 'Normal'}
+                  {currentGlucose ? (currentGlucose > 140 ? 'High' : currentGlucose < 70 ? 'Low' : 'Normal') : 'N/A'}
                 </p>
                 <p className="text-sm text-gray-500 mt-1">
-                  {currentGlucose > 140 ? 'Monitor closely' : currentGlucose < 70 ? 'Action needed' : 'All good'}
+                  {currentGlucose ? (currentGlucose > 140 ? 'Monitor closely' : currentGlucose < 70 ? 'Action needed' : 'All good') : 'Upload data'}
                 </p>
               </div>
 
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-gray-600">Time in Range</p>
-                  <Activity className="w-5 h-5 text-purple-500" />
+                  <p className="text-sm font-medium text-gray-600">Medications</p>
+                  <Pill className="w-5 h-5 text-purple-500" />
                 </div>
-                <p className="text-3xl font-bold text-gray-900">78%</p>
-                <p className="text-sm text-gray-500 mt-1">Last 24 hours</p>
+                <p className="text-3xl font-bold text-gray-900">{medications.length}</p>
+                <p className="text-sm text-gray-500 mt-1">Active</p>
               </div>
             </div>
 
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-gray-900">Glucose Levels {uploadedDataset ? `- ${uploadedDataset.fileName}` : '- Sample Data'}</h3>
-                {uploadedDataset && (
+                <h3 className="text-lg font-bold text-gray-900">
+                  Glucose Levels {glucoseData.length > 12 ? '- Live Data' : '- Sample Data'}
+                </h3>
+                {glucoseData.length > 12 && (
                   <span className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full">
-                    Live Data: {uploadedDataset.data.length} records
+                    {glucoseData.length} data points
                   </span>
                 )}
               </div>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={glucoseData}>
-                    <defs>
-                      <linearGradient id="colorGlucose" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                    <XAxis dataKey="time" stroke="#6B7280" />
-                    <YAxis stroke="#6B7280" domain={[60, 250]} />
-                    <Tooltip />
-                    <Area type="monotone" dataKey="glucose" stroke="#3B82F6" strokeWidth={3} fill="url(#colorGlucose)" />
-                    <Line type="monotone" dataKey="target" stroke="#10B981" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+              
+              {glucoseData.length > 0 ? (
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={glucoseData}>
+                      <defs>
+                        <linearGradient id="colorGlucose" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                      <XAxis dataKey="time" stroke="#6B7280" />
+                      <YAxis stroke="#6B7280" domain={[60, 250]} />
+                      <Tooltip 
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
+                                <p className="text-sm font-semibold">{data.time}</p>
+                                {data.glucose && <p className="text-sm text-blue-600">Glucose: {data.glucose} mg/dL</p>}
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="glucose" 
+                        stroke="#3B82F6" 
+                        strokeWidth={3} 
+                        fill="url(#colorGlucose)"
+                        connectNulls={true}
+                        dot={(props) => {
+                          const { cx, cy, payload } = props;
+                          if (payload.hasMedication) {
+                            return (
+                              <g
+                                onClick={() => alert(`💊 ${payload.medication}\nDosage: ${payload.dosage}`)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <circle cx={cx} cy={cy} r={8} fill="#9333EA" stroke="#fff" strokeWidth={2} />
+                                <text x={cx} y={cy + 3} textAnchor="middle" fill="#fff" fontSize={10}>
+                                  💊
+                                </text>
+                              </g>
+                            );
+                          }
+                          return null;
+                        }}
+
+                      />
+                      <Scatter
+                        data={glucoseData.filter(d => d.hasMedication)}
+                        fill="#9333EA"
+                        shape="circle"
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="target" 
+                        stroke="#10B981" 
+                        strokeWidth={2} 
+                        strokeDasharray="5 5" 
+                        dot={false} 
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-80 flex items-center justify-center bg-gray-50 rounded-xl">
+                  <div className="text-center">
+                    <Activity className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 font-semibold">No glucose data yet</p>
+                    <p className="text-gray-400 text-sm mt-2">Upload a CSV file to see your data</p>
+                  </div>
+                </div>
+              )}
             </div>
+
+            {medications.length > 0 && (
+              <div className="bg-purple-50 rounded-xl p-6 shadow-sm border border-purple-100">
+                <h4 className="text-lg font-semibold text-purple-900 mb-4 flex items-center gap-2">
+                  <Pill className="w-5 h-5" />
+                  Medication Schedule
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  {medications.map(med => (
+                    <div key={med.id} className="bg-white rounded-lg p-4 border border-purple-200">
+                      <p className="text-xs text-gray-500 mb-1">⏰ {med.time}</p>
+                      <p className="text-sm font-semibold text-gray-900">{med.name}</p>
+                      <p className="text-xs text-purple-600 mt-1">{med.dosage}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
