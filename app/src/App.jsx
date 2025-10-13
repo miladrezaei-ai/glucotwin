@@ -20,8 +20,6 @@ export default function GlucoseMonitoringApp() {
     age: '',
     diabetesType: '',
     diagnosisYear: '',
-    targetGlucoseMin: '80',
-    targetGlucoseMax: '140',
     weight: '',
     height: ''
   });
@@ -184,8 +182,6 @@ export default function GlucoseMonitoringApp() {
           age: result.data.age || '',
           diabetesType: result.data.diabetesType || '',
           diagnosisYear: result.data.diagnosisYear || '',
-          targetGlucoseMin: result.data.targetGlucoseMin || '80',
-          targetGlucoseMax: result.data.targetGlucoseMax || '140',
           weight: result.data.weight || '',
           height: result.data.height || ''
         });
@@ -692,24 +688,6 @@ export default function GlucoseMonitoringApp() {
                 </div>
               )}
             </div>
-
-            {medications.length > 0 && (
-              <div className="bg-purple-50 rounded-xl p-6 shadow-sm border border-purple-100">
-                <h4 className="text-lg font-semibold text-purple-900 mb-4 flex items-center gap-2">
-                  <Pill className="w-5 h-5" />
-                  Medication Schedule
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                  {medications.map(med => (
-                    <div key={med.id} className="bg-white rounded-lg p-4 border border-purple-200">
-                      <p className="text-xs text-gray-500 mb-1">⏰ {med.time}</p>
-                      <p className="text-sm font-semibold text-gray-900">{med.name}</p>
-                      <p className="text-xs text-purple-600 mt-1">{med.dosage}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -944,28 +922,6 @@ export default function GlucoseMonitoringApp() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Target Glucose Min (mg/dL)</label>
-                  <input
-                    type="number"
-                    value={profile.targetGlucoseMin}
-                    onChange={(e) => setProfile({...profile, targetGlucoseMin: e.target.value})}
-                    placeholder="80"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Target Glucose Max (mg/dL)</label>
-                  <input
-                    type="number"
-                    value={profile.targetGlucoseMax}
-                    onChange={(e) => setProfile({...profile, targetGlucoseMax: e.target.value})}
-                    placeholder="140"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                
-                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Weight (kg)</label>
                   <input
                     type="number"
@@ -996,26 +952,6 @@ export default function GlucoseMonitoringApp() {
                 Save Profile
               </button>
             </div>
-            
-            {profile.fullName && (
-              <div className="bg-blue-50 rounded-xl p-6 shadow-sm border border-blue-100">
-                <h4 className="text-lg font-semibold text-blue-900 mb-4">Profile Summary</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-white rounded-lg p-4">
-                    <p className="text-xs text-gray-500 mb-1">Patient</p>
-                    <p className="text-sm font-semibold text-gray-900">{profile.fullName}, {profile.age}</p>
-                  </div>
-                  <div className="bg-white rounded-lg p-4">
-                    <p className="text-xs text-gray-500 mb-1">Condition</p>
-                    <p className="text-sm font-semibold text-gray-900">{profile.diabetesType || 'Not set'}</p>
-                  </div>
-                  <div className="bg-white rounded-lg p-4">
-                    <p className="text-xs text-gray-500 mb-1">Target Range</p>
-                    <p className="text-sm font-semibold text-gray-900">{profile.targetGlucoseMin}-{profile.targetGlucoseMax} mg/dL</p>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}        
 
