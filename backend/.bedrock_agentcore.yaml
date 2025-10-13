@@ -1,0 +1,41 @@
+default_agent: assisstant_agent
+agents:
+  assisstant_agent:
+    name: assisstant_agent
+    entrypoint: /Users/miladrezaeighale/Desktop/Hack/glucotwin/backend/assisstant_agent.py
+    platform: linux/arm64
+    container_runtime: none
+    source_path: /Users/miladrezaeighale/Desktop/Hack/glucotwin/backend
+    aws:
+      execution_role: arn:aws:iam::816069161004:role/GlucoseAmazonBedrockAgentCoreExecutionRole
+      execution_role_auto_create: true
+      account: '816069161004'
+      region: eu-central-1
+      ecr_repository: 816069161004.dkr.ecr.eu-central-1.amazonaws.com/bedrock-agentcore-assisstant_agent
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: assisstant_agent-sgq9QE28p3
+      agent_arn: arn:aws:bedrock-agentcore:eu-central-1:816069161004:runtime/assisstant_agent-sgq9QE28p3
+      agent_session_id: null
+    codebuild:
+      project_name: bedrock-agentcore-assisstant_agent-builder
+      execution_role: arn:aws:iam::816069161004:role/AmazonBedrockAgentCoreSDKCodeBuild-eu-central-1-6373edaa10
+      source_bucket: bedrock-agentcore-codebuild-sources-816069161004-eu-central-1
+    memory:
+      mode: STM_ONLY
+      memory_id: assisstant_agent_mem-9WlSde6GVU
+      memory_arn: arn:aws:bedrock-agentcore:eu-central-1:816069161004:memory/assisstant_agent_mem-9WlSde6GVU
+      memory_name: assisstant_agent_mem
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
