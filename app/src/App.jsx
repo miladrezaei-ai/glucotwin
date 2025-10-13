@@ -49,6 +49,9 @@ export default function GlucoseMonitoringApp() {
   const GET_MEDICATIONS_URL = 'https://zpzxhtk5sio5zn5yeri4xnewn40bpjks.lambda-url.eu-central-1.on.aws/';
   const SAVE_PROFILE_URL = 'https://jg45umq5m5df2iq3wjojwqd6hq0cello.lambda-url.eu-central-1.on.aws/';
   const GET_PROFILE_URL = 'https://aoeav22ztkmxeyh5pnnqhlvc3u0zcrml.lambda-url.eu-central-1.on.aws/';
+  const SAVE_FOOD_URL = 'https://vhtroxuvmxt6hlojy7mqjglgsi0ntssg.lambda-url.eu-central-1.on.aws/';
+  const GET_FOOD_URL = 'https://cwbqb32m7xrbelvhduhe6afsn40juoaw.lambda-url.eu-central-1.on.aws/';
+  const S3_BUCKET_URL = 'https://glucoai-food-images.s3.eu-central-1.amazonaws.com/';
 
   useEffect(() => {
     if (chatMessages.length > 0) {
@@ -71,6 +74,12 @@ export default function GlucoseMonitoringApp() {
   useEffect(() => {
     if (isLoggedIn) {
       fetchProfile();
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchFoodEntries();
     }
   }, [isLoggedIn]);
 
@@ -141,6 +150,40 @@ export default function GlucoseMonitoringApp() {
         console.log("💊 Added demo medication for visualization");
       }
 
+      // 🍔 Fetch food entries from DynamoDB
+      try {
+        const foodResponse = await fetch(GET_FOOD_URL);
+        const foodResult = await foodResponse.json();
+        console.log("🍔 DynamoDB food entries:", foodResult.data);
+
+        if (foodResult.data?.length) {
+          console.log("🍔 Processing food entries:", foodResult.data);
+
+          foodResult.data.forEach((food) => {
+            const foodDate = new Date(food.date);
+            const foodMinutes = foodDate.getHours() * 60 + foodDate.getMinutes();
+
+            // Match with nearest glucose reading within ±30 minutes
+            const match = chartData.find((d) => {
+              const [h, m] = d.time.split(":").map(Number);
+              const dataMinutes = h * 60 + m;
+              return Math.abs(foodMinutes - dataMinutes) <= 30;
+            });
+
+            if (match) {
+              match.hasFood = true;
+              match.foodDescription = food.description;
+              match.foodImage = food.imageUrl;
+              console.log(`✅ Matched food near ${match.time}`);
+            }
+          });
+        }
+      } catch (error) {
+        console.error("🍔 Error fetching food entries:", error);
+      }
+
+setGlucoseData(chartData);
+
       setGlucoseData(chartData);
       console.log("🩸 Glucose times:", chartData.map((d) => d.time));
     } catch (error) {
@@ -193,6 +236,29 @@ export default function GlucoseMonitoringApp() {
     }
   };
 
+  const fetchFoodEntries = async () => {
+    try {
+      const response = await fetch(GET_FOOD_URL);
+      const result = await response.json();
+      
+      console.log('🍔 Fetched food entries:', result);
+      
+      if (result.data && result.data.length > 0) {
+        const photos = result.data.map(item => ({
+          id: item.timestamp,
+          url: item.imageUrl,
+          name: 'Food photo',
+          timestamp: new Date(item.timestamp).toLocaleString(),
+          description: item.description,
+          date: item.date
+        }));
+        setFoodPhotos(photos);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching food entries:', error);
+    }
+  };
+  
   const saveProfile = async () => {
     try {
       const userId = email || 'demo-user';
@@ -241,30 +307,91 @@ export default function GlucoseMonitoringApp() {
     setActiveTab('dashboard');
   };
 
-  const handleFoodPhoto = (e) => {
+  const handleFoodPhoto = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const newPhoto = {
-        id: Date.now(),
-        url: event.target.result,
-        name: file.name,
-        timestamp: new Date().toLocaleString(),
-        analysis: 'AI analyzing nutritional content...'
-      };
-      setFoodPhotos([...foodPhotos, newPhoto]);
+  
+    try {
+      // Show loading state
+      const loadingId = Date.now();
+      const tempUrl = URL.createObjectURL(file);
       
-      setTimeout(() => {
-        setFoodPhotos(prev => prev.map(photo => 
-          photo.id === newPhoto.id ? 
-          { ...photo, analysis: 'Est. Carbs: 45g | Protein: 12g | Fat: 8g | Estimated glucose impact: +40-50 mg/dL' } : 
-          photo
+      const loadingPhoto = {
+        id: loadingId,
+        url: tempUrl,
+        name: file.name,
+        timestamp: 'Uploading...',
+        description: '⏳ Uploading to cloud...'
+      };
+      setFoodPhotos([loadingPhoto, ...foodPhotos]);
+  
+      // Upload to S3
+      const userId = email || 'demo-user';
+      const timestamp = Date.now();
+      const fileName = `${userId}_${timestamp}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      const s3Url = `${S3_BUCKET_URL}${fileName}`;
+      
+      console.log('📤 Uploading to S3:', s3Url);
+      
+      await fetch(s3Url, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type }
+      });
+  
+      console.log('✅ Image uploaded to S3');
+  
+      // Save to DynamoDB
+      const now = new Date();
+      const foodData = {
+        userId: userId,
+        imageUrl: s3Url,
+        description: 'Food item logged - AI analysis coming soon',
+        timestamp: timestamp,
+        date: now.toISOString()
+      };
+  
+      console.log('💾 Saving to DynamoDB:', foodData);
+  
+      const response = await fetch(SAVE_FOOD_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(foodData)
+      });
+  
+      const result = await response.json();
+  
+      if (response.ok) {
+        console.log('✅ Saved to DynamoDB');
+        
+        // Update with actual data
+        setFoodPhotos(prev => prev.map(p => 
+          p.id === loadingId ? {
+            id: timestamp,
+            url: s3Url,
+            name: file.name,
+            timestamp: now.toLocaleString(),
+            description: 'Food item logged successfully',
+            date: now.toISOString()
+          } : p
         ));
-      }, 2000);
-    };
-    reader.readAsDataURL(file);
+        
+        alert('✅ Food photo saved successfully!');
+        
+        // Refresh glucose data to show food markers
+        if (activeTab === 'dashboard') {
+          fetchGlucoseData();
+        }
+      } else {
+        throw new Error(result.error || 'Failed to save');
+      }
+  
+    } catch (error) {
+      console.error('❌ Error:', error);
+      alert('❌ Error uploading food photo: ' + error.message);
+      // Remove loading photo on error
+      setFoodPhotos(prev => prev.filter(p => p.description !== '⏳ Uploading to cloud...'));
+    }
   };
 
   const deleteFoodPhoto = (id) => {
@@ -645,6 +772,8 @@ export default function GlucoseMonitoringApp() {
                         connectNulls={true}
                         dot={(props) => {
                           const { cx, cy, payload } = props;
+                          
+                          // Show medication marker (purple)
                           if (payload.hasMedication) {
                             return (
                               <g
@@ -658,6 +787,27 @@ export default function GlucoseMonitoringApp() {
                               </g>
                             );
                           }
+                          
+                          // Show food marker (green)
+                          if (payload.hasFood) {
+                            return (
+                              <g
+                                onClick={() => {
+                                  const msg = `🍔 Food Logged\n\n${payload.foodDescription}\n\nClick OK to view image`;
+                                  if (window.confirm(msg) && payload.foodImage) {
+                                    window.open(payload.foodImage, '_blank');
+                                  }
+                                }}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <circle cx={cx} cy={cy} r={8} fill="#10B981" stroke="#fff" strokeWidth={2} />
+                                <text x={cx} y={cy + 3} textAnchor="middle" fill="#fff" fontSize={10}>
+                                  🍔
+                                </text>
+                              </g>
+                            );
+                          }
+                          
                           return null;
                         }}
 
@@ -677,6 +827,7 @@ export default function GlucoseMonitoringApp() {
                       />
                     </AreaChart>
                   </ResponsiveContainer>
+
                 </div>
               ) : (
                 <div className="h-80 flex items-center justify-center bg-gray-50 rounded-xl">
@@ -688,6 +839,53 @@ export default function GlucoseMonitoringApp() {
                 </div>
               )}
             </div>
+
+{/* AI Chat Assistant */}
+<div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquare className="w-5 h-5 text-blue-600" />
+                <h3 className="text-lg font-bold text-gray-900">Ask AI About Your Data</h3>
+              </div>
+              
+              <div className="bg-gray-50 rounded-xl p-4 h-64 overflow-y-auto mb-4 space-y-3">
+                <div className="flex justify-start">
+                  <div className="bg-white border border-gray-200 rounded-2xl p-3 max-w-[80%] shadow-sm">
+                    <p className="text-sm text-gray-800">
+                      Hi! I'm your AI assistant. Ask me anything about your glucose trends, patterns, or get personalized insights.
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">Just now</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Ask about your glucose patterns, trends, medications..."
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:shadow-lg transition-all flex items-center gap-2 font-semibold">
+                  <Send className="w-5 h-5" />
+                  Send
+                </button>
+              </div>
+              
+              <div className="mt-3 flex gap-2 flex-wrap">
+                <button className="px-3 py-1 bg-blue-50 text-blue-600 text-sm rounded-lg hover:bg-blue-100 transition-colors">
+                  💡 Explain my trends
+                </button>
+                <button className="px-3 py-1 bg-blue-50 text-blue-600 text-sm rounded-lg hover:bg-blue-100 transition-colors">
+                  📊 Compare to yesterday
+                </button>
+                <button className="px-3 py-1 bg-blue-50 text-blue-600 text-sm rounded-lg hover:bg-blue-100 transition-colors">
+                  🎯 Am I in target range?
+                </button>
+                <button className="px-3 py-1 bg-blue-50 text-blue-600 text-sm rounded-lg hover:bg-blue-100 transition-colors">
+                  💊 Medication impact
+                </button>
+              </div>
+            </div>
+
           </div>
         )}
 
