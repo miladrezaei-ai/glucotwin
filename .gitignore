@@ -8,6 +8,20 @@ app/build/
 .next/
 out/
 
+# --- Backend ignores ---
+backend/venv/
+backend/__pycache__/
+backend/.pytest_cache/
+backend/.bedrock_agentcore/runtime/
+backend/.bedrock_agentcore/tmp/
+backend/.bedrock_agentcore/logs/
+backend/*.pyc
+backend/*.pyo
+backend/.DS_Store
+backend/.env
+backend/.env.local
+backend/.bedrock_agentcore_state/
+
 # Environment variables
 .env
 .env.local
