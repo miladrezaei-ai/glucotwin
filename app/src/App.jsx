@@ -8,13 +8,21 @@ export default function GlucoseMonitoringApp() {
   const [password, setPassword] = useState('');
   const [userName, setUserName] = useState('');
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessages, setChatMessages] = useState([
+    {
+      type: 'bot',
+      text: "Hi! I'm your AI assistant. Ask me anything about your glucose trends, patterns, or get personalized insights.",
+      timestamp: new Date().toLocaleTimeString(),
+    },
+  ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [foodPhotos, setFoodPhotos] = useState([]);
   const [medications, setMedications] = useState([]);
   const [newMed, setNewMed] = useState({ name: '', dosage: '', time: '' });
   const [uploadedDataset, setUploadedDataset] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const [profile, setProfile] = useState({
     fullName: '',
     age: '',
@@ -52,6 +60,7 @@ export default function GlucoseMonitoringApp() {
   const SAVE_FOOD_URL = 'https://vhtroxuvmxt6hlojy7mqjglgsi0ntssg.lambda-url.eu-central-1.on.aws/';
   const GET_FOOD_URL = 'https://cwbqb32m7xrbelvhduhe6afsn40juoaw.lambda-url.eu-central-1.on.aws/';
   const S3_BUCKET_URL = 'https://glucoai-food-images.s3.eu-central-1.amazonaws.com/';
+  const CHAT_AI_URL = 'https://22lnzphycfzw5lnj6i5kf7og6q0ahqju.lambda-url.eu-central-1.on.aws/';
 
   useEffect(() => {
     if (chatMessages.length > 0) {
@@ -290,11 +299,6 @@ setGlucoseData(chartData);
     if (email && password) {
       setUserName(email.split('@')[0]);
       setIsLoggedIn(true);
-      setChatMessages([{
-        type: 'bot',
-        text: `Hello ${email.split('@')[0]}! I'm your AI glucose assistant. I can help you understand your readings, analyze your food photos, review your medications, and provide personalized advice.`,
-        timestamp: new Date().toLocaleTimeString()
-      }]);
     }
   };
 
@@ -467,42 +471,72 @@ setGlucoseData(chartData);
     }
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!inputMessage.trim()) return;
-
+  
     const userMsg = {
       type: 'user',
       text: inputMessage,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Date().toLocaleTimeString(),
     };
-
-    setChatMessages([...chatMessages, userMsg]);
-
-    setTimeout(() => {
-      let botResponse = '';
-      const msgLower = inputMessage.toLowerCase();
-
-      if (msgLower.includes('glucose') || msgLower.includes('sugar') || msgLower.includes('level')) {
-        botResponse = `Your current glucose level is ${currentGlucose} mg/dL. Your 24-hour average is ${avgGlucose} mg/dL. ${currentGlucose > 140 ? 'This is slightly elevated. Consider light exercise and staying hydrated.' : currentGlucose < 70 ? 'This is low. Please consume 15g of fast-acting carbs immediately.' : 'This is within normal range!'}`;
-      } else if (msgLower.includes('food') || msgLower.includes('meal')) {
-        botResponse = `You have ${foodPhotos.length} food photos logged. I can analyze your meals to help you make better choices. Would you like me to review your recent meals?`;
-      } else if (msgLower.includes('medication') || msgLower.includes('medicine')) {
-        botResponse = `You have ${medications.length} medications recorded. Remember to take them as prescribed. Would you like me to set up reminders?`;
-      } else if (msgLower.includes('data') || msgLower.includes('export')) {
-        botResponse = uploadedDataset ? `I can see your uploaded data with ${uploadedDataset.data.length} records. Would you like me to analyze patterns?` : 'You can upload your device data in the Data Upload tab for detailed analysis.';
-      } else {
-        botResponse = `I can help with glucose monitoring, food analysis, medication tracking, and data insights. Your current reading is ${currentGlucose} mg/dL. What would you like to know?`;
-      }
-
-      setChatMessages(prev => [...prev, {
-        type: 'bot',
-        text: botResponse,
-        timestamp: new Date().toLocaleTimeString()
-      }]);
-    }, 1000);
-
+  
+    setChatMessages((prev) => [...prev, userMsg]);
     setInputMessage('');
+    setIsAiLoading(true);
+  
+    try {
+      const response = await fetch("https://22lnzphycfzw5lnj6i5kf7og6q0ahqju.lambda-url.eu-central-1.on.aws/", {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: inputMessage,
+          sessionId: sessionId || undefined,
+          userId: email || 'test-user',
+          glucoseData: {
+            current: currentGlucose,
+            average: avgGlucose,
+            recentReadings: glucoseData ? glucoseData.slice(-5) : [],
+          },
+          medications: medications || [],
+          foodPhotos: foodPhotos?.length || 0,
+        }),
+      });
+  
+      console.log("Lambda raw response:", response);
+  
+      const data = await response.json();
+      console.log("Lambda parsed data:", data);
+  
+      // Store session ID for continuity
+      if (data.sessionId && !sessionId) {
+        setSessionId(data.sessionId);
+      }
+  
+      const botMsg = {
+        type: 'bot',
+        text: data.reply || data.response || 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date().toLocaleTimeString(),
+      };
+  
+      setChatMessages((prev) => [...prev, botMsg]);
+  
+    } catch (error) {
+      console.error('Chat error:', error);
+  
+      const errorMsg = {
+        type: 'bot',
+        text: 'Sorry, I\'m having trouble connecting. Please try again in a moment.',
+        timestamp: new Date().toLocaleTimeString(),
+      };
+  
+      setChatMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setIsAiLoading(false);
+    }
   };
+   
 
   const handleVoiceInput = () => {
     setIsRecording(!isRecording);
@@ -683,14 +717,7 @@ setGlucoseData(chartData);
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-gray-600">Current Glucose</p>
-                  <Activity className="w-5 h-5 text-blue-500" />
-                </div>
-                <p className="text-3xl font-bold text-gray-900">{currentGlucose || '--'}</p>
-                <p className="text-sm text-gray-500 mt-1">mg/dL</p>
-              </div>
+
 
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                 <div className="flex items-center justify-between mb-2">
@@ -840,33 +867,66 @@ setGlucoseData(chartData);
               )}
             </div>
 
-{/* AI Chat Assistant */}
-<div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          {/* AI Chat Assistant */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <div className="flex items-center gap-2 mb-4">
                 <MessageSquare className="w-5 h-5 text-blue-600" />
                 <h3 className="text-lg font-bold text-gray-900">Ask AI About Your Data</h3>
               </div>
               
               <div className="bg-gray-50 rounded-xl p-4 h-64 overflow-y-auto mb-4 space-y-3">
-                <div className="flex justify-start">
-                  <div className="bg-white border border-gray-200 rounded-2xl p-3 max-w-[80%] shadow-sm">
-                    <p className="text-sm text-gray-800">
-                      Hi! I'm your AI assistant. Ask me anything about your glucose trends, patterns, or get personalized insights.
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">Just now</p>
+                {chatMessages.length === 0 ? (
+                  <div className="flex justify-start">
+                    <div className="bg-white border border-gray-200 rounded-2xl p-3 max-w-[80%] shadow-sm">
+                      <p className="text-sm text-gray-800">
+                        Hi! I'm your AI assistant. Ask me anything about your glucose trends, patterns, or get personalized insights.
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">Just now</p>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  chatMessages.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[80%] ${msg.type === 'user' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200'} rounded-2xl p-3 shadow-sm`}>
+                        <p className={`text-sm ${msg.type === 'user' ? 'text-white' : 'text-gray-800'}`}>{msg.text}</p>
+                        <p className={`text-xs mt-1 ${msg.type === 'user' ? 'text-blue-200' : 'text-gray-400'}`}>{msg.timestamp}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+                <div ref={chatEndRef} />
               </div>
+
               
               <div className="flex gap-2">
                 <input
                   type="text"
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyPress={handleKeyPress}
                   placeholder="Ask about your glucose patterns, trends, medications..."
                   className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <button className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:shadow-lg transition-all flex items-center gap-2 font-semibold">
-                  <Send className="w-5 h-5" />
-                  Send
+                <button
+                  onClick={sendMessage}
+                  disabled={isAiLoading}
+                  className={`px-6 py-3 rounded-xl flex items-center gap-2 font-semibold transition-all ${
+                    isAiLoading
+                      ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:shadow-lg'
+                  }`}
+                >
+                  {isAiLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      Send
+                    </>
+                  )}
                 </button>
               </div>
               
