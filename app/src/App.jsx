@@ -385,6 +385,12 @@ export default function GlucoseMonitoringApp() {
     const file = e.target.files[0];
     if (!file) return;
   
+    // ✅ Validate date and time
+    if (!newMed.date || !newMed.time) {
+      alert('⚠️ Please select date and time for the food entry');
+      return;
+    }
+  
     try {
       const loadingId = Date.now();
       const tempUrl = URL.createObjectURL(file);
@@ -399,8 +405,7 @@ export default function GlucoseMonitoringApp() {
       setFoodPhotos([loadingPhoto, ...foodPhotos]);
   
       const userId = 'sdfdsf';
-      const now = new Date();
-      const timestamp = now.getTime();  // Keep for ID purposes
+      const timestamp = Date.now();
       const fileName = `${userId}_${timestamp}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
       const s3Url = `${S3_BUCKET_URL}${fileName}`;
       
@@ -414,12 +419,15 @@ export default function GlucoseMonitoringApp() {
   
       console.log('✅ Image uploaded to S3');
   
-      // ✅ CHANGED: Use ISO date string
+      // ✅ Build ISO date string (same format as medications)
+      const [hours, minutes] = newMed.time.split(':');
+      const isoDateWithMicroseconds = `${newMed.date}T${hours}:${minutes}:00.000000`;
+  
       const foodData = {
         userId: userId,
         imageUrl: s3Url,
         description: 'Food item logged - AI analysis coming soon',
-        date: now.toISOString()  // ✅ ISO format: "2025-10-14T18:47:23.456Z"
+        date: isoDateWithMicroseconds  // ✅ Same format as medications
       };
   
       console.log('💾 Saving to DynamoDB:', foodData);
@@ -435,19 +443,22 @@ export default function GlucoseMonitoringApp() {
       if (response.ok) {
         console.log('✅ Saved to DynamoDB');
         
+        const displayDate = new Date(`${newMed.date}T${newMed.time}`);
+        
         setFoodPhotos(prev => prev.map(p => 
           p.id === loadingId ? {
             id: timestamp,
             url: s3Url,
             name: file.name,
-            timestamp: now.toLocaleString(),
+            timestamp: displayDate.toLocaleString(),
             description: 'Food item logged successfully',
-            date: now.toISOString()
+            date: isoDateWithMicroseconds
           } : p
         ));
         
         alert('✅ Food photo saved successfully!');
         
+        // Refresh chart
         if (activeTab === 'dashboard') {
           fetchGlucoseData();
         }
@@ -866,11 +877,14 @@ export default function GlucoseMonitoringApp() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                 <XAxis 
-                dataKey="displayLabel"  // ✅ Use multi-line label
-                stroke="#6B7280" 
-                tick={{ fontSize: 11 }}
-                height={60}  // ✅ Increase height for two lines
-              />
+                  dataKey="displayLabel"
+                  stroke="#6B7280" 
+                  angle={-45}  // ✅ Rotate 45 degrees
+                  textAnchor="end"  // ✅ Align text to end
+                  height={80}  // ✅ More space for rotated text
+                  tick={{ fontSize: 14 }}
+                  interval={0}  // ✅ Show all labels (or use 'preserveStartEnd')
+                />
                 <YAxis stroke="#6B7280" domain={[60, 250]} />
                 <Tooltip 
                   content={({ active, payload }) => {
@@ -1073,15 +1087,44 @@ export default function GlucoseMonitoringApp() {
     <div className="space-y-6">
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
         <h3 className="text-xl font-bold text-gray-900 mb-4">Food Photo Tracker</h3>
-        <p className="text-gray-600 mb-6">Take photos of your meals for AI nutritional analysis</p>
+        <p className="text-gray-600 mb-6">Upload the photo of your meals for AI nutritional analysis</p>
         
-        <button
-          onClick={() => foodInputRef.current?.click()}
-          className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-4 px-6 rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-2"
-        >
-          <Camera className="w-6 h-6" />
-          Capture Food Photo
-        </button>
+        <div className="space-y-4">
+          {/* ✅ Date Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+            <input
+              type="date"
+              value={newMed.date}
+              onChange={(e) => setNewMed({...newMed, date: e.target.value})}
+              max={new Date().toISOString().split('T')[0]}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          {/* ✅ Time Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
+            <input
+              type="time"
+              value={newMed.time}
+              onChange={(e) => setNewMed({...newMed, time: e.target.value})}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* ✅ Photo Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Photo</label>
+            <button
+              onClick={() => foodInputRef.current?.click()}
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-4 px-6 rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-2"
+            >
+              <Camera className="w-6 h-6" />
+              Upload Food Photo
+            </button>
+          </div>
+        </div>
         
         <input ref={foodInputRef} type="file" accept="image/*" capture="environment" onChange={handleFoodPhoto} className="hidden" />
       </div>
@@ -1109,8 +1152,6 @@ export default function GlucoseMonitoringApp() {
       )}
     </div>
   )}
-
-  // Find the medications tab section (around line 900+) and update it:
 
   {activeTab === 'medications' && (
     <div className="space-y-6">
