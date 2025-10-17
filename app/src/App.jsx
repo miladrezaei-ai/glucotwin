@@ -1010,25 +1010,19 @@ export default function GlucoseMonitoringApp() {
         
         <div className="mt-3 flex gap-2 flex-wrap">
           <button 
-            onClick={() => setInputMessage("Explain my trends")}
+            onClick={() => setInputMessage("Summarize glucose data")}
             className="px-3 py-1 bg-blue-50 text-blue-600 text-sm rounded-lg hover:bg-blue-100 transition-colors"
           >
-            💡 Explain my trends
+            📊 Summarize glucose data
           </button>
           <button 
-            onClick={() => setInputMessage("When did I take medication?")}
+            onClick={() => setInputMessage("How did my medication affect my glucose levels?")}
             className="px-3 py-1 bg-blue-50 text-blue-600 text-sm rounded-lg hover:bg-blue-100 transition-colors"
           >
-            💊 Medication times
+            💊 Medication Impact
           </button>
           <button 
-            onClick={() => setInputMessage("Am I in target range?")}
-            className="px-3 py-1 bg-blue-50 text-blue-600 text-sm rounded-lg hover:bg-blue-100 transition-colors"
-          >
-            🎯 Target range check
-          </button>
-          <button 
-            onClick={() => setInputMessage("How did food affect my glucose?")}
+            onClick={() => setInputMessage("How did the food I ate affect my glucose levels?")}
             className="px-3 py-1 bg-blue-50 text-blue-600 text-sm rounded-lg hover:bg-blue-100 transition-colors"
           >
             🍔 Food impact
