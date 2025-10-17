@@ -20,7 +20,12 @@ export default function GlucoseMonitoringApp() {
   const [isRecording, setIsRecording] = useState(false);
   const [foodPhotos, setFoodPhotos] = useState([]);
   const [medications, setMedications] = useState([]);
-  const [newMed, setNewMed] = useState({ name: '', dosage: '', time: '' });
+  const [newMed, setNewMed] = useState({ 
+    name: '', 
+    dosage: '', 
+    time: '',
+    date: new Date().toISOString().split('T')[0]  // Default to today
+  });
   const [uploadedDataset, setUploadedDataset] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -131,8 +136,17 @@ export default function GlucoseMonitoringApp() {
             group.glucoseValues.reduce((sum, val) => sum + val, 0) / group.glucoseValues.length
           );
           
+          // ✅ Extract date for display
+          const fullDate = new Date(group.fullDateTime);
+          const dateStr = fullDate.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short'
+          });
+
           return {
             time: hourKey,
+            dateStr: dateStr,  // ✅ Add date string
+            displayLabel: `${hourKey}\n${dateStr}`,  // ✅ Multi-line label
             fullDateTime: group.fullDateTime,
             glucose: avgGlucose,
             target: 100,
@@ -167,12 +181,13 @@ export default function GlucoseMonitoringApp() {
   
           chartData.push({
             time: medTime,
+            dateStr: medDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+            displayLabel: `${medTime}\n${medDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
             glucose: interpolatedGlucose,
             target: 100,
             hasMedication: true,
             medication: med.medicationName,
             dosage: med.dosage,
-            isMedicationPoint: true
           });
   
           console.log(`✅ Added medication at exact time: ${medTime}`);
@@ -208,12 +223,13 @@ export default function GlucoseMonitoringApp() {
   
             chartData.push({
               time: foodTime,
+              dateStr: foodDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+              displayLabel: `${foodTime}\n${foodDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
               glucose: interpolatedGlucose,
               target: 100,
               hasFood: true,
               foodDescription: food.description,
               foodImage: food.imageUrl,
-              isFoodPoint: true
             });
   
             console.log(`✅ Added food at exact time: ${foodTime}`);
@@ -451,14 +467,23 @@ export default function GlucoseMonitoringApp() {
   };
 
   const addMedication = async () => {
-    if (newMed.name && newMed.dosage && newMed.time) {
+    if (newMed.name && newMed.dosage && newMed.time && newMed.date) {
       try {
         const userId = 'sdfdsf';
         
-        // ✅ CHANGED: Create proper date from time input
-        const now = new Date();
+        // ✅ Create date WITHOUT timezone conversion
         const [hours, minutes] = newMed.time.split(':');
-        now.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        
+        // Build ISO string manually to preserve local timezone
+        const isoDateWithMicroseconds = `${newMed.date}T${hours}:${minutes}:00.000000`;
+        
+        console.log('💊 Saving medication:', {
+          name: newMed.name,
+          dosage: newMed.dosage,
+          date: newMed.date,
+          time: newMed.time,
+          combined: isoDateWithMicroseconds  // e.g., "2025-10-14T08:10:00.000000"
+        });
         
         const response = await fetch(SAVE_MEDICATION_URL, {
           method: 'POST',
@@ -468,7 +493,7 @@ export default function GlucoseMonitoringApp() {
             medicationName: newMed.name,
             dosage: newMed.dosage,
             timeOfDay: newMed.time,
-            date: now.toISOString()  // ✅ ISO format
+            date: isoDateWithMicroseconds  // ✅ No UTC conversion!
           })
         });
   
@@ -477,10 +502,20 @@ export default function GlucoseMonitoringApp() {
         if (response.ok) {
           setMedications([...medications, { 
             ...newMed, 
-            id: Date.now()
+            id: Date.now(),
+            date: isoDateWithMicroseconds
           }]);
-          setNewMed({ name: '', dosage: '', time: '' });
+          setNewMed({ 
+            name: '', 
+            dosage: '', 
+            time: '',
+            date: new Date().toISOString().split('T')[0]
+          });
           alert('✅ Medication saved successfully!');
+          
+          if (activeTab === 'dashboard') {
+            fetchGlucoseData();
+          }
         } else {
           alert('❌ Failed to save medication: ' + result.error);
         }
@@ -488,6 +523,8 @@ export default function GlucoseMonitoringApp() {
         console.error('Error saving medication:', error);
         alert('❌ Error saving medication: ' + error.message);
       }
+    } else {
+      alert('⚠️ Please fill all fields (name, dosage, date, and time)');
     }
   };
 
@@ -815,11 +852,6 @@ export default function GlucoseMonitoringApp() {
           <h3 className="text-lg font-bold text-gray-900">
             Glucose Levels {glucoseData.length > 12 ? '- Live Data' : '- Sample Data'}
           </h3>
-          {glucoseData.length > 12 && (
-            <span className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full">
-              {glucoseData.length} data points
-            </span>
-          )}
         </div>
         
         {glucoseData.length > 0 ? (
@@ -833,7 +865,12 @@ export default function GlucoseMonitoringApp() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis dataKey="time" stroke="#6B7280" />
+                <XAxis 
+                dataKey="displayLabel"  // ✅ Use multi-line label
+                stroke="#6B7280" 
+                tick={{ fontSize: 11 }}
+                height={60}  // ✅ Increase height for two lines
+              />
                 <YAxis stroke="#6B7280" domain={[60, 250]} />
                 <Tooltip 
                   content={({ active, payload }) => {
@@ -1073,6 +1110,8 @@ export default function GlucoseMonitoringApp() {
     </div>
   )}
 
+  // Find the medications tab section (around line 900+) and update it:
+
   {activeTab === 'medications' && (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
@@ -1097,6 +1136,18 @@ export default function GlucoseMonitoringApp() {
               value={newMed.dosage}
               onChange={(e) => setNewMed({...newMed, dosage: e.target.value})}
               placeholder="e.g., 500mg"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          {/* ✅ NEW: Date Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+            <input
+              type="date"
+              value={newMed.date}
+              onChange={(e) => setNewMed({...newMed, date: e.target.value})}
+              max={new Date().toISOString().split('T')[0]}  // Can't select future dates
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -1133,7 +1184,9 @@ export default function GlucoseMonitoringApp() {
                   </div>
                   <div>
                     <p className="font-semibold text-gray-900">{med.name}</p>
-                    <p className="text-sm text-gray-600">{med.dosage} at {med.time}</p>
+                    <p className="text-sm text-gray-600">
+                      {med.dosage} • {med.date ? new Date(med.date).toLocaleDateString() : ''} at {med.time}
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => deleteMedication(med.id)} className="text-red-500 hover:text-red-700">
