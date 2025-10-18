@@ -43,7 +43,7 @@ export default function GlucoseMonitoringApp() {
   const datasetInputRef = useRef(null);
 
   const [glucoseData, setGlucoseData] = useState([
-    { time: '00:00', glucose: 95, target: 100 },
+    { time: '00:00', glucose: 95, target: 1000 },
     { time: '02:00', glucose: 88, target: 100 },
     { time: '04:00', glucose: 92, target: 100 },
     { time: '06:00', glucose: 105, target: 100 },
@@ -57,17 +57,28 @@ export default function GlucoseMonitoringApp() {
     { time: '22:00', glucose: 98, target: 100 },
   ]);
 
+  const API_BASE_URL = 'https://3jh1jmcfo1.execute-api.eu-central-1.amazonaws.com/DEV';
+  const SAVE_FOOD_URL = `${API_BASE_URL}/food`;
+  const GET_FOOD_URL = `${API_BASE_URL}/food`;
+  const SAVE_MEDICATION_URL = `${API_BASE_URL}/medicine`;
+  const GET_MEDICATIONS_URL = `${API_BASE_URL}/medicine`;
+  const SAVE_PROFILE_URL = `${API_BASE_URL}/profile`;
+  const GET_PROFILE_URL = `${API_BASE_URL}/profile`;
+  const FETCH_DATA_URL = `${API_BASE_URL}/glucose`;
+  const CHAT_AI_URL = `${API_BASE_URL}/chat`;
+
+
   const currentGlucose = glucoseData[glucoseData.length - 1]?.glucose;
   const avgGlucose = Math.round(glucoseData.reduce((acc, val) => acc + val.glucose, 0) / glucoseData.length);
-  const FETCH_DATA_URL = 'https://6cwiyk4o5l5ygmcuo7u64we4bq0srulh.lambda-url.eu-central-1.on.aws/';
-  const SAVE_MEDICATION_URL = 'https://7xnwpq2rkbpvfmluph4myx6kry0hspem.lambda-url.eu-central-1.on.aws/';
-  const GET_MEDICATIONS_URL = 'https://zpzxhtk5sio5zn5yeri4xnewn40bpjks.lambda-url.eu-central-1.on.aws/';
-  const SAVE_PROFILE_URL = 'https://jg45umq5m5df2iq3wjojwqd6hq0cello.lambda-url.eu-central-1.on.aws/';
-  const GET_PROFILE_URL = 'https://aoeav22ztkmxeyh5pnnqhlvc3u0zcrml.lambda-url.eu-central-1.on.aws/';
-  const SAVE_FOOD_URL = 'https://vhtroxuvmxt6hlojy7mqjglgsi0ntssg.lambda-url.eu-central-1.on.aws/';
-  const GET_FOOD_URL = 'https://cwbqb32m7xrbelvhduhe6afsn40juoaw.lambda-url.eu-central-1.on.aws/';
+  // const FETCH_DATA_URL = 'https://6cwiyk4o5l5ygmcuo7u64we4bq0srulh.lambda-url.eu-central-1.on.aws/';
+  // const SAVE_MEDICATION_URL = 'https://7xnwpq2rkbpvfmluph4myx6kry0hspem.lambda-url.eu-central-1.on.aws/';
+  // const GET_MEDICATIONS_URL = 'https://zpzxhtk5sio5zn5yeri4xnewn40bpjks.lambda-url.eu-central-1.on.aws/';
+  // const SAVE_PROFILE_URL = 'https://jg45umq5m5df2iq3wjojwqd6hq0cello.lambda-url.eu-central-1.on.aws/';
+  // const GET_PROFILE_URL = 'https://aoeav22ztkmxeyh5pnnqhlvc3u0zcrml.lambda-url.eu-central-1.on.aws/';
+  // const SAVE_FOOD_URL = 'https://vhtroxuvmxt6hlojy7mqjglgsi0ntssg.lambda-url.eu-central-1.on.aws/';
+  // const GET_FOOD_URL = 'https://cwbqb32m7xrbelvhduhe6afsn40juoaw.lambda-url.eu-central-1.on.aws/';
   const S3_BUCKET_URL = 'https://glucoai-food-images.s3.eu-central-1.amazonaws.com/';
-  const CHAT_AI_URL = 'https://22lnzphycfzw5lnj6i5kf7og6q0ahqju.lambda-url.eu-central-1.on.aws/';
+  // const CHAT_AI_URL = 'https://22lnzphycfzw5lnj6i5kf7og6q0ahqju.lambda-url.eu-central-1.on.aws/';
 
   useEffect(() => {
     if (chatMessages.length > 0) {
