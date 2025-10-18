@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Activity, MessageSquare, TrendingUp, AlertCircle, LogOut, Mic, Send, Camera, Upload, Pill, Plus, Trash2 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from 'recharts';
 import ReactMarkdown from 'react-markdown';
+import { v4 as uuidv4 } from 'uuid';
 
 export default function GlucoseMonitoringApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -385,7 +386,6 @@ export default function GlucoseMonitoringApp() {
     const file = e.target.files[0];
     if (!file) return;
   
-    // ✅ Validate date and time
     if (!newMed.date || !newMed.time) {
       alert('⚠️ Please select date and time for the food entry');
       return;
@@ -400,14 +400,38 @@ export default function GlucoseMonitoringApp() {
         url: tempUrl,
         name: file.name,
         timestamp: 'Uploading...',
-        description: '⏳ Uploading to cloud...'
+        description: '⏳ Uploading and analyzing with AI...'
       };
       setFoodPhotos([loadingPhoto, ...foodPhotos]);
   
       const userId = 'sdfdsf';
-      const timestamp = Date.now();
-      const fileName = `${userId}_${timestamp}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      
+      // ✅ Generate unique food ID
+      const foodId = uuidv4();
+      
+      console.log('🆔 Generated foodId:', foodId);
+
+      // ✅ Calculate timestamp from date/time
+      const [hours, minutes] = newMed.time.split(':');
+      const isoDateWithMicroseconds = `${newMed.date}T${hours}:${minutes}:00.000000`;
+      const date_for_parsing = isoDateWithMicroseconds.split('.')[0];
+      const date_obj = new Date(date_for_parsing);
+      const timestamp = Math.floor(date_obj.getTime());
+      
+      // ✅ Clean original filename
+      let cleanFileName = file.name;
+      const filenameParts = cleanFileName.split('_');
+      if (filenameParts.length > 2) {
+        // Keep only the actual filename part
+        cleanFileName = filenameParts.slice(-1)[0];
+      }
+
+      // ✅ Build clean S3 filename
+      const fileName = `${userId}_${foodId}_${cleanFileName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
       const s3Url = `${S3_BUCKET_URL}${fileName}`;
+
+      console.log('📤 Clean filename:', fileName);
+      console.log('📤 Uploading to S3:', s3Url);
       
       console.log('📤 Uploading to S3:', s3Url);
       
@@ -415,19 +439,21 @@ export default function GlucoseMonitoringApp() {
         method: 'PUT',
         body: file,
         headers: { 'Content-Type': file.type }
+      }).then(response => {
+        if (!response.ok) {
+          throw new Error(`S3 upload failed: ${response.status}`);
+        }
+        console.log('✅ Image uploaded to S3');
       });
   
-      console.log('✅ Image uploaded to S3');
-  
-      // ✅ Build ISO date string (same format as medications)
-      const [hours, minutes] = newMed.time.split(':');
-      const isoDateWithMicroseconds = `${newMed.date}T${hours}:${minutes}:00.000000`;
-  
+      // ✅ Save to DynamoDB with foodId
       const foodData = {
         userId: userId,
+        foodId: foodId,  // ✅ Unique identifier
+        timestamp: timestamp,
         imageUrl: s3Url,
-        description: 'Food item logged - AI analysis coming soon',
-        date: isoDateWithMicroseconds  // ✅ Same format as medications
+        description: '🤖 AI analyzing food...',
+        date: isoDateWithMicroseconds
       };
   
       console.log('💾 Saving to DynamoDB:', foodData);
@@ -441,27 +467,31 @@ export default function GlucoseMonitoringApp() {
       const result = await response.json();
   
       if (response.ok) {
-        console.log('✅ Saved to DynamoDB');
+        console.log('✅ Saved to DynamoDB with foodId:', foodId);
         
         const displayDate = new Date(`${newMed.date}T${newMed.time}`);
         
         setFoodPhotos(prev => prev.map(p => 
           p.id === loadingId ? {
-            id: timestamp,
+            id: foodId,  // ✅ Use foodId
             url: s3Url,
             name: file.name,
             timestamp: displayDate.toLocaleString(),
-            description: 'Food item logged successfully',
+            description: '🤖 AI analyzing food... (refresh in 10 seconds)',
             date: isoDateWithMicroseconds
           } : p
         ));
         
-        alert('✅ Food photo saved successfully!');
+        alert('✅ Food photo uploaded! AI is analyzing...');
         
-        // Refresh chart
-        if (activeTab === 'dashboard') {
-          fetchGlucoseData();
-        }
+        // Auto-refresh
+        setTimeout(() => {
+          fetchFoodEntries();
+          if (activeTab === 'dashboard') {
+            fetchGlucoseData();
+          }
+        }, 10000);
+        
       } else {
         throw new Error(result.error || 'Failed to save');
       }
@@ -469,7 +499,7 @@ export default function GlucoseMonitoringApp() {
     } catch (error) {
       console.error('❌ Error:', error);
       alert('❌ Error uploading food photo: ' + error.message);
-      setFoodPhotos(prev => prev.filter(p => p.description !== '⏳ Uploading to cloud...'));
+      setFoodPhotos(prev => prev.filter(p => p.description !== '⏳ Uploading and analyzing with AI...'));
     }
   };
 
@@ -850,11 +880,24 @@ export default function GlucoseMonitoringApp() {
 
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-gray-600">Medications</p>
-            <Pill className="w-5 h-5 text-purple-500" />
+            <p className="text-sm font-medium text-gray-600">Minimum</p>
+            <TrendingUp className="w-5 h-5 text-blue-500 transform rotate-180" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{medications.length}</p>
-          <p className="text-sm text-gray-500 mt-1">Active</p>
+          <p className="text-3xl font-bold text-gray-900">
+            {glucoseData.length > 0 ? Math.min(...glucoseData.map(d => d.glucose).filter(g => g)) : '--'}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">mg/dL</p>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium text-gray-600">Maximum</p>
+            <TrendingUp className="w-5 h-5 text-red-500" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900">
+            {glucoseData.length > 0 ? Math.max(...glucoseData.map(d => d.glucose).filter(g => g)) : '--'}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">mg/dL</p>
         </div>
       </div>
 
