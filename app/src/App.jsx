@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Activity, MessageSquare, TrendingUp, AlertCircle, LogOut, Mic, Send, Camera, Upload, Pill, Plus, Trash2 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from 'recharts';
 import ReactMarkdown from 'react-markdown';
+import { v4 as uuidv4 } from 'uuid';
 
 export default function GlucoseMonitoringApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -20,7 +21,12 @@ export default function GlucoseMonitoringApp() {
   const [isRecording, setIsRecording] = useState(false);
   const [foodPhotos, setFoodPhotos] = useState([]);
   const [medications, setMedications] = useState([]);
-  const [newMed, setNewMed] = useState({ name: '', dosage: '', time: '' });
+  const [newMed, setNewMed] = useState({ 
+    name: '', 
+    dosage: '', 
+    time: '',
+    date: new Date().toISOString().split('T')[0]  // Default to today
+  });
   const [uploadedDataset, setUploadedDataset] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -131,8 +137,17 @@ export default function GlucoseMonitoringApp() {
             group.glucoseValues.reduce((sum, val) => sum + val, 0) / group.glucoseValues.length
           );
           
+          // ✅ Extract date for display
+          const fullDate = new Date(group.fullDateTime);
+          const dateStr = fullDate.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short'
+          });
+
           return {
             time: hourKey,
+            dateStr: dateStr,  // ✅ Add date string
+            displayLabel: `${hourKey}\n${dateStr}`,  // ✅ Multi-line label
             fullDateTime: group.fullDateTime,
             glucose: avgGlucose,
             target: 100,
@@ -167,12 +182,13 @@ export default function GlucoseMonitoringApp() {
   
           chartData.push({
             time: medTime,
+            dateStr: medDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+            displayLabel: `${medTime}\n${medDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
             glucose: interpolatedGlucose,
             target: 100,
             hasMedication: true,
             medication: med.medicationName,
             dosage: med.dosage,
-            isMedicationPoint: true
           });
   
           console.log(`✅ Added medication at exact time: ${medTime}`);
@@ -208,12 +224,13 @@ export default function GlucoseMonitoringApp() {
   
             chartData.push({
               time: foodTime,
+              dateStr: foodDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+              displayLabel: `${foodTime}\n${foodDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
               glucose: interpolatedGlucose,
               target: 100,
               hasFood: true,
               foodDescription: food.description,
               foodImage: food.imageUrl,
-              isFoodPoint: true
             });
   
             console.log(`✅ Added food at exact time: ${foodTime}`);
@@ -369,6 +386,11 @@ export default function GlucoseMonitoringApp() {
     const file = e.target.files[0];
     if (!file) return;
   
+    if (!newMed.date || !newMed.time) {
+      alert('⚠️ Please select date and time for the food entry');
+      return;
+    }
+  
     try {
       const loadingId = Date.now();
       const tempUrl = URL.createObjectURL(file);
@@ -378,15 +400,38 @@ export default function GlucoseMonitoringApp() {
         url: tempUrl,
         name: file.name,
         timestamp: 'Uploading...',
-        description: '⏳ Uploading to cloud...'
+        description: '⏳ Uploading and analyzing with AI...'
       };
       setFoodPhotos([loadingPhoto, ...foodPhotos]);
   
       const userId = 'sdfdsf';
-      const now = new Date();
-      const timestamp = now.getTime();  // Keep for ID purposes
-      const fileName = `${userId}_${timestamp}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      
+      // ✅ Generate unique food ID
+      const foodId = uuidv4();
+      
+      console.log('🆔 Generated foodId:', foodId);
+
+      // ✅ Calculate timestamp from date/time
+      const [hours, minutes] = newMed.time.split(':');
+      const isoDateWithMicroseconds = `${newMed.date}T${hours}:${minutes}:00.000000`;
+      const date_for_parsing = isoDateWithMicroseconds.split('.')[0];
+      const date_obj = new Date(date_for_parsing);
+      const timestamp = Math.floor(date_obj.getTime());
+      
+      // ✅ Clean original filename
+      let cleanFileName = file.name;
+      const filenameParts = cleanFileName.split('_');
+      if (filenameParts.length > 2) {
+        // Keep only the actual filename part
+        cleanFileName = filenameParts.slice(-1)[0];
+      }
+
+      // ✅ Build clean S3 filename
+      const fileName = `${userId}_${foodId}_${cleanFileName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
       const s3Url = `${S3_BUCKET_URL}${fileName}`;
+
+      console.log('📤 Clean filename:', fileName);
+      console.log('📤 Uploading to S3:', s3Url);
       
       console.log('📤 Uploading to S3:', s3Url);
       
@@ -394,16 +439,21 @@ export default function GlucoseMonitoringApp() {
         method: 'PUT',
         body: file,
         headers: { 'Content-Type': file.type }
+      }).then(response => {
+        if (!response.ok) {
+          throw new Error(`S3 upload failed: ${response.status}`);
+        }
+        console.log('✅ Image uploaded to S3');
       });
   
-      console.log('✅ Image uploaded to S3');
-  
-      // ✅ CHANGED: Use ISO date string
+      // ✅ Save to DynamoDB with foodId
       const foodData = {
         userId: userId,
+        foodId: foodId,  // ✅ Unique identifier
+        timestamp: timestamp,
         imageUrl: s3Url,
-        description: 'Food item logged - AI analysis coming soon',
-        date: now.toISOString()  // ✅ ISO format: "2025-10-14T18:47:23.456Z"
+        description: '🤖 AI analyzing food...',
+        date: isoDateWithMicroseconds
       };
   
       console.log('💾 Saving to DynamoDB:', foodData);
@@ -417,24 +467,31 @@ export default function GlucoseMonitoringApp() {
       const result = await response.json();
   
       if (response.ok) {
-        console.log('✅ Saved to DynamoDB');
+        console.log('✅ Saved to DynamoDB with foodId:', foodId);
+        
+        const displayDate = new Date(`${newMed.date}T${newMed.time}`);
         
         setFoodPhotos(prev => prev.map(p => 
           p.id === loadingId ? {
-            id: timestamp,
+            id: foodId,  // ✅ Use foodId
             url: s3Url,
             name: file.name,
-            timestamp: now.toLocaleString(),
-            description: 'Food item logged successfully',
-            date: now.toISOString()
+            timestamp: displayDate.toLocaleString(),
+            description: '🤖 AI analyzing food... (refresh in 10 seconds)',
+            date: isoDateWithMicroseconds
           } : p
         ));
         
-        alert('✅ Food photo saved successfully!');
+        alert('✅ Food photo uploaded! AI is analyzing...');
         
-        if (activeTab === 'dashboard') {
-          fetchGlucoseData();
-        }
+        // Auto-refresh
+        setTimeout(() => {
+          fetchFoodEntries();
+          if (activeTab === 'dashboard') {
+            fetchGlucoseData();
+          }
+        }, 10000);
+        
       } else {
         throw new Error(result.error || 'Failed to save');
       }
@@ -442,7 +499,7 @@ export default function GlucoseMonitoringApp() {
     } catch (error) {
       console.error('❌ Error:', error);
       alert('❌ Error uploading food photo: ' + error.message);
-      setFoodPhotos(prev => prev.filter(p => p.description !== '⏳ Uploading to cloud...'));
+      setFoodPhotos(prev => prev.filter(p => p.description !== '⏳ Uploading and analyzing with AI...'));
     }
   };
 
@@ -451,14 +508,23 @@ export default function GlucoseMonitoringApp() {
   };
 
   const addMedication = async () => {
-    if (newMed.name && newMed.dosage && newMed.time) {
+    if (newMed.name && newMed.dosage && newMed.time && newMed.date) {
       try {
         const userId = 'sdfdsf';
         
-        // ✅ CHANGED: Create proper date from time input
-        const now = new Date();
+        // ✅ Create date WITHOUT timezone conversion
         const [hours, minutes] = newMed.time.split(':');
-        now.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        
+        // Build ISO string manually to preserve local timezone
+        const isoDateWithMicroseconds = `${newMed.date}T${hours}:${minutes}:00.000000`;
+        
+        console.log('💊 Saving medication:', {
+          name: newMed.name,
+          dosage: newMed.dosage,
+          date: newMed.date,
+          time: newMed.time,
+          combined: isoDateWithMicroseconds  // e.g., "2025-10-14T08:10:00.000000"
+        });
         
         const response = await fetch(SAVE_MEDICATION_URL, {
           method: 'POST',
@@ -468,7 +534,7 @@ export default function GlucoseMonitoringApp() {
             medicationName: newMed.name,
             dosage: newMed.dosage,
             timeOfDay: newMed.time,
-            date: now.toISOString()  // ✅ ISO format
+            date: isoDateWithMicroseconds  // ✅ No UTC conversion!
           })
         });
   
@@ -477,10 +543,20 @@ export default function GlucoseMonitoringApp() {
         if (response.ok) {
           setMedications([...medications, { 
             ...newMed, 
-            id: Date.now()
+            id: Date.now(),
+            date: isoDateWithMicroseconds
           }]);
-          setNewMed({ name: '', dosage: '', time: '' });
+          setNewMed({ 
+            name: '', 
+            dosage: '', 
+            time: '',
+            date: new Date().toISOString().split('T')[0]
+          });
           alert('✅ Medication saved successfully!');
+          
+          if (activeTab === 'dashboard') {
+            fetchGlucoseData();
+          }
         } else {
           alert('❌ Failed to save medication: ' + result.error);
         }
@@ -488,6 +564,8 @@ export default function GlucoseMonitoringApp() {
         console.error('Error saving medication:', error);
         alert('❌ Error saving medication: ' + error.message);
       }
+    } else {
+      alert('⚠️ Please fill all fields (name, dosage, date, and time)');
     }
   };
 
@@ -802,11 +880,24 @@ export default function GlucoseMonitoringApp() {
 
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-gray-600">Medications</p>
-            <Pill className="w-5 h-5 text-purple-500" />
+            <p className="text-sm font-medium text-gray-600">Minimum</p>
+            <TrendingUp className="w-5 h-5 text-blue-500 transform rotate-180" />
           </div>
-          <p className="text-3xl font-bold text-gray-900">{medications.length}</p>
-          <p className="text-sm text-gray-500 mt-1">Active</p>
+          <p className="text-3xl font-bold text-gray-900">
+            {glucoseData.length > 0 ? Math.min(...glucoseData.map(d => d.glucose).filter(g => g)) : '--'}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">mg/dL</p>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium text-gray-600">Maximum</p>
+            <TrendingUp className="w-5 h-5 text-red-500" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900">
+            {glucoseData.length > 0 ? Math.max(...glucoseData.map(d => d.glucose).filter(g => g)) : '--'}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">mg/dL</p>
         </div>
       </div>
 
@@ -815,11 +906,6 @@ export default function GlucoseMonitoringApp() {
           <h3 className="text-lg font-bold text-gray-900">
             Glucose Levels {glucoseData.length > 12 ? '- Live Data' : '- Sample Data'}
           </h3>
-          {glucoseData.length > 12 && (
-            <span className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full">
-              {glucoseData.length} data points
-            </span>
-          )}
         </div>
         
         {glucoseData.length > 0 ? (
@@ -833,7 +919,15 @@ export default function GlucoseMonitoringApp() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis dataKey="time" stroke="#6B7280" />
+                <XAxis 
+                  dataKey="displayLabel"
+                  stroke="#6B7280" 
+                  angle={-45}  // ✅ Rotate 45 degrees
+                  textAnchor="end"  // ✅ Align text to end
+                  height={80}  // ✅ More space for rotated text
+                  tick={{ fontSize: 14 }}
+                  interval={0}  // ✅ Show all labels (or use 'preserveStartEnd')
+                />
                 <YAxis stroke="#6B7280" domain={[60, 250]} />
                 <Tooltip 
                   content={({ active, payload }) => {
@@ -1036,15 +1130,44 @@ export default function GlucoseMonitoringApp() {
     <div className="space-y-6">
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
         <h3 className="text-xl font-bold text-gray-900 mb-4">Food Photo Tracker</h3>
-        <p className="text-gray-600 mb-6">Take photos of your meals for AI nutritional analysis</p>
+        <p className="text-gray-600 mb-6">Upload the photo of your meals for AI nutritional analysis</p>
         
-        <button
-          onClick={() => foodInputRef.current?.click()}
-          className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-4 px-6 rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-2"
-        >
-          <Camera className="w-6 h-6" />
-          Capture Food Photo
-        </button>
+        <div className="space-y-4">
+          {/* ✅ Date Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+            <input
+              type="date"
+              value={newMed.date}
+              onChange={(e) => setNewMed({...newMed, date: e.target.value})}
+              max={new Date().toISOString().split('T')[0]}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          {/* ✅ Time Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
+            <input
+              type="time"
+              value={newMed.time}
+              onChange={(e) => setNewMed({...newMed, time: e.target.value})}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* ✅ Photo Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Photo</label>
+            <button
+              onClick={() => foodInputRef.current?.click()}
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-4 px-6 rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-2"
+            >
+              <Camera className="w-6 h-6" />
+              Upload Food Photo
+            </button>
+          </div>
+        </div>
         
         <input ref={foodInputRef} type="file" accept="image/*" capture="environment" onChange={handleFoodPhoto} className="hidden" />
       </div>
@@ -1101,6 +1224,18 @@ export default function GlucoseMonitoringApp() {
             />
           </div>
           
+          {/* ✅ NEW: Date Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+            <input
+              type="date"
+              value={newMed.date}
+              onChange={(e) => setNewMed({...newMed, date: e.target.value})}
+              max={new Date().toISOString().split('T')[0]}  // Can't select future dates
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
             <input
@@ -1133,7 +1268,9 @@ export default function GlucoseMonitoringApp() {
                   </div>
                   <div>
                     <p className="font-semibold text-gray-900">{med.name}</p>
-                    <p className="text-sm text-gray-600">{med.dosage} at {med.time}</p>
+                    <p className="text-sm text-gray-600">
+                      {med.dosage} • {med.date ? new Date(med.date).toLocaleDateString() : ''} at {med.time}
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => deleteMedication(med.id)} className="text-red-500 hover:text-red-700">
