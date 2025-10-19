@@ -847,8 +847,8 @@ export default function GlucoseMonitoringApp() {
             
             <div className="flex items-center gap-3">
               <div className="hidden sm:block text-right mr-2">
-                <p className="text-sm font-semibold text-gray-900">{userName}</p>
-                <p className="text-xs text-gray-500">{email}</p>
+                <p className="text-sm font-semibold text-gray-900">Hello, Ga Mei</p>
+                {/* <p className="text-xs text-gray-500">{email}</p> */}
               </div>
               <button
                 onClick={handleLogout}
