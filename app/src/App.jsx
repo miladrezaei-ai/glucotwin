@@ -30,7 +30,9 @@ export default function GlucoseMonitoringApp() {
   const [uploadedDataset, setUploadedDataset] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState('2025-10-14');
+  const [medicationMarkers, setMedicationMarkers] = useState([]);
+  const [foodMarkers, setFoodMarkers] = useState([]);  
   const [profile, setProfile] = useState({
     fullName: '',
     age: '',
@@ -118,34 +120,16 @@ export default function GlucoseMonitoringApp() {
   
       if (!result.data?.length) return;
   
-      // ✅ Get all unique dates
-      const uniqueDates = [...new Set(result.data.map(item => {
-        return new Date(item.time).toISOString().split('T')[0];
-      }))].sort();
-  
-      // ✅ Auto-select the latest date if selectedDate has no data
-      const hasDataForSelectedDate = result.data.some(item => {
+      // ✅ Filter by selected date (timezone-safe)
+      const filteredData = result.data.filter(item => {
         const itemDate = new Date(item.time).toISOString().split('T')[0];
         return itemDate === selectedDate;
       });
   
-      if (!hasDataForSelectedDate && uniqueDates.length > 0) {
-        const latestDate = uniqueDates[uniqueDates.length - 1];
-        console.log(`📅 No data for ${selectedDate}, switching to latest: ${latestDate}`);
-        setSelectedDate(latestDate);
-        return; // Let useEffect re-run with new date
-      }
-  
-      // ✅ Filter by selected date
-      const filteredData = result.data.filter(item => {
-        // Extract date from "2025-10-14 00:05:27.000000" format
-        const itemDate = item.time.split(' ')[0]; // Gets "2025-10-14"
-        return itemDate === selectedDate;
-      });
-
-  
       if (filteredData.length === 0) {
         setGlucoseData([]);
+        setMedicationMarkers([]);
+        setFoodMarkers([]);
         return;
       }
   
@@ -196,63 +180,78 @@ export default function GlucoseMonitoringApp() {
           };
         });
   
+      // ✅ Process medications as separate markers
+      const medicationMarkersTemp = [];
+      
       const medResponse = await fetch(GET_MEDICATIONS_URL);
       const medResult = await medResponse.json();
   
       if (medResult.data?.length) {
         medResult.data.forEach((med) => {
-          const medDate = new Date(med.date);
-          const medDateStr = medDate.toISOString().split('T')[0];
+          const medDateStr = med.date.split('T')[0];
           
-          // ✅ Only add if same date
           if (medDateStr === selectedDate) {
-            const medTime = medDate.toLocaleTimeString("en-GB", {
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: false,
-            });
-  
+            const medDate = new Date(med.date);
             const medHour = medDate.getHours();
             const medMinutes = medDate.getMinutes();
-  
-            const beforePoint = chartData.find(d => parseInt(d.time) <= medHour);
-            const afterPoint = chartData.find(d => parseInt(d.time) > medHour);
-  
+            
+            // Find closest glucose reading
+            const beforePoint = chartData.find(d => {
+              const dataHour = parseInt(d.time.split(':')[0]);
+              return dataHour <= medHour;
+            });
+            const afterPoint = chartData.find(d => {
+              const dataHour = parseInt(d.time.split(':')[0]);
+              return dataHour > medHour;
+            });
+      
             let interpolatedGlucose = beforePoint?.glucose || 100;
             if (beforePoint && afterPoint) {
-              const ratio = medMinutes / 60;
+              const beforeHour = parseInt(beforePoint.time.split(':')[0]);
+              const afterHour = parseInt(afterPoint.time.split(':')[0]);
+              const hourDiff = afterHour - beforeHour;
+              const ratio = (medHour - beforeHour + medMinutes / 60) / hourDiff;
               interpolatedGlucose = Math.round(
                 beforePoint.glucose + (afterPoint.glucose - beforePoint.glucose) * ratio
               );
             }
-  
+      
+            // ✅ Add to chartData (it will be rendered as part of the line)
             chartData.push({
-              time: medTime,
-              dateStr: medDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
-              displayLabel: `${medTime}\n${medDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
+              time: `${medHour.toString().padStart(2, '0')}:${medMinutes.toString().padStart(2, '0')}`,
               glucose: interpolatedGlucose,
               target: 100,
               hasMedication: true,
               medication: med.medicationName,
               dosage: med.dosage,
             });
-  
-            console.log(`✅ Added medication at exact time: ${medTime}`);
+      
+            console.log(`✅ Added medication at: ${medHour}:${medMinutes}`);
           }
         });
       }
   
+      // ✅ Process food as separate markers
+      const foodMarkersTemp = [];
+      
       try {
         const foodResponse = await fetch(GET_FOOD_URL);
         const foodResult = await foodResponse.json();
   
         if (foodResult.data?.length) {
+          console.log('🍔 Total food fetched:', foodResult.data.length);
           foodResult.data.forEach((food) => {
-            const foodDate = new Date(food.date);
-            const foodDateStr = foodDate.toISOString().split('T')[0];
+            console.log('🔍 Raw food.date:', food.date);
+            console.log('🔍 food.date type:', typeof food.date);
+            const foodDateStr = food.date.split('T')[0]; // Extract date
+
+            console.log('🔍 Extracted foodDateStr:', foodDateStr);
+            console.log('🔍 selectedDate:', selectedDate);
+            console.log('🔍 Match?', foodDateStr === selectedDate);
             
             // ✅ Only add if same date
             if (foodDateStr === selectedDate) {
+              const foodDate = new Date(food.date);
               const foodTime = foodDate.toLocaleTimeString("en-GB", {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -273,18 +272,15 @@ export default function GlucoseMonitoringApp() {
                 );
               }
   
-              chartData.push({
+              // ✅ Store as marker (not in chartData)
+              foodMarkersTemp.push({
                 time: foodTime,
-                dateStr: foodDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
-                displayLabel: `${foodTime}\n${foodDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
                 glucose: interpolatedGlucose,
-                target: 100,
-                hasFood: true,
                 foodDescription: food.description,
                 foodImage: food.imageUrl,
               });
   
-              console.log(`✅ Added food at exact time: ${foodTime}`);
+              console.log(`✅ Added food marker at: ${foodTime}`);
             }
           });
         }
@@ -292,14 +288,23 @@ export default function GlucoseMonitoringApp() {
         console.error("🍔 Error fetching food entries:", error);
       }
   
+      // ✅ Sort chart data by time only
       chartData.sort((a, b) => {
         const timeA = a.time.split(':').map(Number);
         const timeB = b.time.split(':').map(Number);
         return (timeA[0] * 60 + (timeA[1] || 0)) - (timeB[0] * 60 + (timeB[1] || 0));
       });
   
+      console.log('🩸 Sample glucose data:', chartData[0]);
+      console.log('💊 Medication markers:', medicationMarkersTemp);
+
       setGlucoseData(chartData);
-      console.log("🩸 Total data points:", chartData.length);
+      // setMedicationMarkers(medicationMarkersTemp);
+      // setFoodMarkers(foodMarkersTemp);
+      
+      console.log("🩸 Total glucose points:", chartData.length);
+      console.log("💊 Total medication markers:", medicationMarkersTemp.length);
+      console.log("🍔 Total food markers:", foodMarkersTemp.length);
   
     } catch (error) {
       console.error("Error fetching glucose data:", error);
@@ -1037,13 +1042,14 @@ export default function GlucoseMonitoringApp() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                 <XAxis 
-                  dataKey="time"  // ✅ This shows only "08:30"
+                  dataKey="time"
                   stroke="#6B7280" 
                   angle={-45}
                   textAnchor="end"
                   height={80}
                   tick={{ fontSize: 12 }}
-                  interval={'preserveStartEnd'}  // ✅ Show first and last label
+                  interval={'preserveStartEnd'}
+                  allowDuplicatedCategory={false}  // ✅ This removes duplicates
                 />
                 <YAxis stroke="#6B7280" domain={[60, 250]} />
                 <Tooltip 
@@ -1106,11 +1112,7 @@ export default function GlucoseMonitoringApp() {
                     return null;
                   }}
                 />
-                <Scatter
-                  data={glucoseData.filter(d => d.hasMedication)}
-                  fill="#9333EA"
-                  shape="circle"
-                />
+
                 <Line 
                   type="monotone" 
                   dataKey="target" 
