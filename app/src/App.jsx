@@ -838,15 +838,15 @@ export default function GlucoseMonitoringApp() {
           <div className="mt-8 grid grid-cols-3 gap-4 text-center">
             <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10">
               <Activity className="w-6 h-6 text-cyan-400 mx-auto mb-2" />
-              <p className="text-white text-xs">Real-time</p>
+              <p className="text-white text-xs">Health Insights</p>
             </div>
             <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10">
               <Camera className="w-6 h-6 text-cyan-400 mx-auto mb-2" />
-              <p className="text-white text-xs">Food Track</p>
+              <p className="text-white text-xs">Food Tracker</p>
             </div>
             <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10">
               <Pill className="w-6 h-6 text-cyan-400 mx-auto mb-2" />
-              <p className="text-white text-xs">Med Manager</p>
+              <p className="text-white text-xs">Medicine Tracker</p>
             </div>
           </div>
         </div>
