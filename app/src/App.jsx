@@ -1116,7 +1116,7 @@ export default function GlucoseMonitoringApp() {
           <div className="h-80 flex items-center justify-center bg-gray-50 rounded-xl">
             <div className="text-center">
               <Activity className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 font-semibold">No glucose data yet</p>
+              <p className="text-gray-500 font-semibold">No glucose data here yet</p>
               <p className="text-gray-400 text-sm mt-2">Upload a CSV file to see your data</p>
             </div>
           </div>
