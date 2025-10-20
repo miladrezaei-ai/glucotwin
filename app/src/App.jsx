@@ -454,7 +454,14 @@ export default function GlucoseMonitoringApp() {
 
   const handleLogout = async () => {
     try {
-      await signOut();
+      // Force complete logout
+      await signOut({ global: true });
+  
+      // Clear local storage + cookies just to be sure
+      localStorage.clear();
+      sessionStorage.clear();
+  
+      // Reset state
       setIsLoggedIn(false);
       setEmail('');
       setPassword('');
