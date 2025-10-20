@@ -912,7 +912,7 @@ export default function GlucoseMonitoringApp() {
 <main className="max-w-7xl mx-auto p-4 lg:p-6">
   {activeTab === 'dashboard' && (
     <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-gray-600">24h Average</p>
