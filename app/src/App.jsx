@@ -1061,13 +1061,18 @@ export default function GlucoseMonitoringApp() {
                   strokeWidth={3} 
                   fill="url(#colorGlucose)"
                   connectNulls={true}
+                  data={glucoseData.filter(d => !d.hasMedication && !d.hasFood)}  // ✅ Exclude med/food from line
                   dot={(props) => {
-                    const { cx, cy, payload } = props;
+                    const { cx, cy, payload, index } = props;
                     
-                    if (payload.hasMedication) {
+                    // Find if there's medication/food at this exact time
+                    const medAtTime = glucoseData.find(d => d.hasMedication && d.time === payload.time);
+                    const foodAtTime = glucoseData.find(d => d.hasFood && d.time === payload.time);
+                    
+                    if (medAtTime) {
                       return (
                         <g
-                          onClick={() => alert(`💊 ${payload.medication}\nDosage: ${payload.dosage}`)}
+                          onClick={() => alert(`💊 ${medAtTime.medication}\nDosage: ${medAtTime.dosage}`)}
                           style={{ cursor: 'pointer' }}
                         >
                           <circle cx={cx} cy={cy} r={8} fill="#9333EA" stroke="#fff" strokeWidth={2} />
@@ -1078,13 +1083,13 @@ export default function GlucoseMonitoringApp() {
                       );
                     }
                     
-                    if (payload.hasFood) {
+                    if (foodAtTime) {
                       return (
                         <g
                           onClick={() => {
-                            const msg = `🍔 Food Logged\n\n${payload.foodDescription}\n\nClick OK to view image`;
-                            if (window.confirm(msg) && payload.foodImage) {
-                              window.open(payload.foodImage, '_blank');
+                            const msg = `🍔 Food Logged\n\n${foodAtTime.foodDescription}\n\nClick OK to view image`;
+                            if (window.confirm(msg) && foodAtTime.foodImage) {
+                              window.open(foodAtTime.foodImage, '_blank');
                             }
                           }}
                           style={{ cursor: 'pointer' }}
