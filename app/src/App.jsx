@@ -229,50 +229,48 @@ export default function GlucoseMonitoringApp() {
       try {
         const foodResponse = await fetch(GET_FOOD_URL);
         const foodResult = await foodResponse.json();
-  
+      
         if (foodResult.data?.length) {
-          console.log('🍔 Total food fetched:', foodResult.data.length);
           foodResult.data.forEach((food) => {
-            console.log('🔍 Raw food.date:', food.date);
-            console.log('🔍 food.date type:', typeof food.date);
-            const foodDateStr = food.date.split('T')[0]; // Extract date
-
-            console.log('🔍 Extracted foodDateStr:', foodDateStr);
-            console.log('🔍 selectedDate:', selectedDate);
-            console.log('🔍 Match?', foodDateStr === selectedDate);
+            const foodDateStr = food.date.split('T')[0];
             
-            // ✅ Only add if same date
             if (foodDateStr === selectedDate) {
               const foodDate = new Date(food.date);
-              const foodTime = foodDate.toLocaleTimeString("en-GB", {
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false,
-              });
-  
               const foodHour = foodDate.getHours();
               const foodMinutes = foodDate.getMinutes();
-  
-              const beforePoint = chartData.find(d => parseInt(d.time) <= foodHour);
-              const afterPoint = chartData.find(d => parseInt(d.time) > foodHour);
-  
+              
+              // Find closest glucose reading
+              const beforePoint = chartData.find(d => {
+                const dataHour = parseInt(d.time.split(':')[0]);
+                return dataHour <= foodHour;
+              });
+              const afterPoint = chartData.find(d => {
+                const dataHour = parseInt(d.time.split(':')[0]);
+                return dataHour > foodHour;
+              });
+      
               let interpolatedGlucose = beforePoint?.glucose || 100;
               if (beforePoint && afterPoint) {
-                const ratio = foodMinutes / 60;
+                const beforeHour = parseInt(beforePoint.time.split(':')[0]);
+                const afterHour = parseInt(afterPoint.time.split(':')[0]);
+                const hourDiff = afterHour - beforeHour;
+                const ratio = (foodHour - beforeHour + foodMinutes / 60) / hourDiff;
                 interpolatedGlucose = Math.round(
                   beforePoint.glucose + (afterPoint.glucose - beforePoint.glucose) * ratio
                 );
               }
-  
-              // ✅ Store as marker (not in chartData)
-              foodMarkersTemp.push({
-                time: foodTime,
+      
+              // ✅ Add to chartData
+              chartData.push({
+                time: `${foodHour.toString().padStart(2, '0')}:${foodMinutes.toString().padStart(2, '0')}`,
                 glucose: interpolatedGlucose,
+                target: 100,
+                hasFood: true,
                 foodDescription: food.description,
                 foodImage: food.imageUrl,
               });
-  
-              console.log(`✅ Added food marker at: ${foodTime}`);
+      
+              console.log(`✅ Added food at: ${foodHour}:${foodMinutes}`);
             }
           });
         }
