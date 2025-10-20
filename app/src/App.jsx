@@ -138,8 +138,12 @@ export default function GlucoseMonitoringApp() {
   
       // ✅ Filter by selected date
       const filteredData = result.data.filter(item => {
-        const itemDate = new Date(item.time).toISOString().split('T')[0];
-        return itemDate === selectedDate;
+        // Parse as UTC to avoid timezone shifts
+        const itemDateTime = new Date(item.time);
+        const itemDateStr = itemDateTime.getUTCFullYear() + '-' + 
+                            String(itemDateTime.getUTCMonth() + 1).padStart(2, '0') + '-' + 
+                            String(itemDateTime.getUTCDate()).padStart(2, '0');
+        return itemDateStr === selectedDate;
       });
 
   
