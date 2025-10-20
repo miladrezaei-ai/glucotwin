@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import './amplify-config'; 
 import { Activity, MessageSquare, TrendingUp, AlertCircle, LogOut, Mic, Send, Camera, Upload, Pill, Plus, Trash2 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from 'recharts';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
+import { signIn, signOut, getCurrentUser, signUp, confirmSignUp } from 'aws-amplify/auth';
 
 export default function GlucoseMonitoringApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -104,6 +106,20 @@ export default function GlucoseMonitoringApp() {
       fetchFoodEntries();
     }
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+  
+  const checkAuthStatus = async () => {
+    try {
+      const user = await getCurrentUser();
+      setUserName(user.username);
+      setIsLoggedIn(true);
+    } catch (err) {
+      setIsLoggedIn(false);
+    }
+  };
 
   const fetchGlucoseData = async () => {
     try {
@@ -422,21 +438,32 @@ export default function GlucoseMonitoringApp() {
     }
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     if (email && password) {
-      setUserName(email.split('@')[0]);
-      setIsLoggedIn(true);
+      try {
+        const user = await signIn({ username: email, password: password });
+        setUserName(email.split('@')[0]);
+        setIsLoggedIn(true);
+      } catch (error) {
+        console.error('Login error:', error);
+        alert('Login failed: ' + error.message);
+      }
     }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setEmail('');
-    setPassword('');
-    setUserName('');
-    setChatMessages([]);
-    setActiveTab('dashboard');
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      setIsLoggedIn(false);
+      setEmail('');
+      setPassword('');
+      setUserName('');
+      setChatMessages([]);
+      setActiveTab('dashboard');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   const handleFoodPhoto = async (e) => {
@@ -798,10 +825,6 @@ export default function GlucoseMonitoringApp() {
               >
                 Sign In
               </button>
-            </div>
-
-            <div className="mt-6 text-center">
-              <p className="text-cyan-200 text-sm">Demo Mode: Use any email/password</p>
             </div>
           </div>
 
