@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AgentCore Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f1117;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    color: #e2e8f0;
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+  }
+  p.subtitle {
+    color: #64748b;
+    font-size: 13px;
+    margin-bottom: 40px;
+  }
+  svg {
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  /* Node styles */
+  .node-box {
+    rx: 12; ry: 12;
+    stroke-width: 1.5;
+  }
+  .label-main {
+    font-size: 13px;
+    font-weight: 600;
+    fill: #f1f5f9;
+  }
+  .label-sub {
+    font-size: 11px;
+    fill: #94a3b8;
+  }
+  .label-badge {
+    font-size: 10px;
+    font-weight: 700;
+    fill: #0f1117;
+  }
+
+  /* Arrow labels */
+  .arrow-label {
+    font-size: 11px;
+    fill: #64748b;
+  }
+  .arrow-label-highlight {
+    font-size: 11px;
+    fill: #38bdf8;
+    font-weight: 600;
+  }
+
+  /* Step badges */
+  .step-circle {
+    fill: #1e293b;
+    stroke: #334155;
+    stroke-width: 1.5;
+  }
+  .step-num {
+    font-size: 11px;
+    font-weight: 700;
+    fill: #94a3b8;
+  }
+
+  /* Legend */
+  .legend-box {
+    fill: #1e293b;
+    rx: 8; ry: 8;
+    stroke: #334155;
+    stroke-width: 1;
+  }
+  .legend-text {
+    font-size: 11px;
+    fill: #94a3b8;
+  }
+  .legend-title {
+    font-size: 12px;
+    font-weight: 700;
+    fill: #cbd5e1;
+  }
+</style>
+</head>
+<body>
+<h1>Agentic Application — Recommended Architecture</h1>
+<p class="subtitle">Frontend → AgentCore Runtime → AgentCore Gateway → Lambda Tools</p>
+
+<svg width="1300" height="780" viewBox="0 0 1300 780">
+  <defs>
+    <!-- Arrow markers -->
+    <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#38bdf8" />
+    </marker>
+    <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#4ade80" />
+    </marker>
+    <marker id="arrow-orange" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#fb923c" />
+    </marker>
+    <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#a78bfa" />
+    </marker>
+    <marker id="arrow-gray" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#475569" />
+    </marker>
+
+    <!-- Glow filters -->
+    <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-green" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- ============================================================ -->
+  <!-- LAYER BACKGROUNDS -->
+  <!-- ============================================================ -->
+
+  <!-- Frontend layer -->
+  <rect x="30" y="60" width="160" height="660" rx="14" fill="#0f172a" stroke="#1e3a5f" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="110" y="50" text-anchor="middle" font-size="11" font-weight="700" fill="#38bdf8" letter-spacing="1">FRONTEND</text>
+
+  <!-- AWS Cloud layer -->
+  <rect x="220" y="60" width="1050" height="660" rx="14" fill="#0a0f1a" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="745" y="50" text-anchor="middle" font-size="11" font-weight="700" fill="#fb923c" letter-spacing="1">AWS CLOUD</text>
+
+  <!-- AgentCore sub-layer -->
+  <rect x="490" y="80" width="500" height="300" rx="10" fill="#111827" stroke="#1d4ed8" stroke-width="1" stroke-dasharray="4,3" opacity="0.7"/>
+  <text x="740" y="100" text-anchor="middle" font-size="10" font-weight="700" fill="#3b82f6" letter-spacing="1" opacity="0.8">AGENTCORE</text>
+
+  <!-- Tool layer -->
+  <rect x="1010" y="80" width="240" height="620" rx="10" fill="#111827" stroke="#166534" stroke-width="1" stroke-dasharray="4,3" opacity="0.7"/>
+  <text x="1130" y="100" text-anchor="middle" font-size="10" font-weight="700" fill="#4ade80" letter-spacing="1" opacity="0.8">TOOL LAYER</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: Browser / User -->
+  <!-- ============================================================ -->
+  <rect x="45" y="200" width="130" height="80" rx="12" fill="#0f2744" stroke="#38bdf8" stroke-width="1.5" class="node-box"/>
+  <!-- Browser icon -->
+  <rect x="65" y="215" width="40" height="28" rx="4" fill="none" stroke="#38bdf8" stroke-width="1.5"/>
+  <line x1="65" y1="222" x2="105" y2="222" stroke="#38bdf8" stroke-width="1.5"/>
+  <circle cx="69" cy="219" r="1.5" fill="#38bdf8"/>
+  <circle cx="74" cy="219" r="1.5" fill="#38bdf8"/>
+  <circle cx="79" cy="219" r="1.5" fill="#38bdf8"/>
+  <text x="110" y="225" class="label-main" font-size="12">Browser</text>
+  <text x="55" y="258" class="label-sub">React / Vue / etc</text>
+  <text x="55" y="272" class="label-sub">Cognito Amplify</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: Cognito (auth) -->
+  <!-- ============================================================ -->
+  <rect x="45" y="380" width="130" height="70" rx="12" fill="#1a1040" stroke="#a78bfa" stroke-width="1.5"/>
+  <!-- Cognito icon (shield) -->
+  <path d="M75 390 L75 408 Q75 415 82 418 Q89 415 89 408 L89 390 Z" fill="none" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="95" y="402" class="label-main" font-size="12">Cognito</text>
+  <text x="55" y="420" class="label-sub">User Pool</text>
+  <text x="55" y="434" class="label-sub">id / access / refresh</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: API Gateway -->
+  <!-- ============================================================ -->
+  <rect x="240" y="190" width="140" height="100" rx="12" fill="#1a1a2e" stroke="#fb923c" stroke-width="1.5"/>
+  <!-- API GW icon -->
+  <circle cx="270" cy="220" r="16" fill="none" stroke="#fb923c" stroke-width="1.5"/>
+  <line x1="270" y1="208" x2="270" y2="232" stroke="#fb923c" stroke-width="1.5"/>
+  <line x1="258" y1="220" x2="282" y2="220" stroke="#fb923c" stroke-width="1.5"/>
+  <text x="295" y="216" class="label-main" font-size="12">API Gateway</text>
+  <text x="250" y="248" class="label-sub">HTTP API</text>
+  <text x="250" y="262" class="label-sub">Cognito Authorizer</text>
+  <text x="250" y="276" class="label-sub">validates JWT</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: Lambda Proxy -->
+  <!-- ============================================================ -->
+  <rect x="240" y="370" width="140" height="90" rx="12" fill="#1a1a2e" stroke="#fb923c" stroke-width="1.5"/>
+  <!-- Lambda icon (λ) -->
+  <text x="260" y="400" font-size="22" fill="#fb923c" font-weight="700">λ</text>
+  <text x="285" y="396" class="label-main" font-size="12">Lambda</text>
+  <text x="250" y="415" class="label-sub">Thin proxy</text>
+  <text x="250" y="429" class="label-sub">extracts userId</text>
+  <text x="250" y="443" class="label-sub">from JWT claims</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: AgentCore Runtime -->
+  <!-- ============================================================ -->
+  <rect x="510" y="120" width="160" height="110" rx="12" fill="#0d1f3c" stroke="#3b82f6" stroke-width="2" filter="url(#glow-blue)"/>
+  <!-- Runtime icon -->
+  <rect x="525" y="135" width="30" height="22" rx="4" fill="none" stroke="#3b82f6" stroke-width="1.5"/>
+  <line x1="530" y1="142" x2="550" y2="142" stroke="#3b82f6" stroke-width="1"/>
+  <line x1="530" y1="147" x2="545" y2="147" stroke="#3b82f6" stroke-width="1"/>
+  <line x1="530" y1="152" x2="548" y2="152" stroke="#3b82f6" stroke-width="1"/>
+  <text x="562" y="148" class="label-main" font-size="13">AgentCore</text>
+  <text x="562" y="163" class="label-main" font-size="13">Runtime</text>
+  <text x="520" y="188" class="label-sub">Strands Agent</text>
+  <text x="520" y="202" class="label-sub">session management</text>
+  <text x="520" y="216" class="label-sub">memory + observability</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: AgentCore Memory -->
+  <!-- ============================================================ -->
+  <rect x="510" y="270" width="160" height="90" rx="12" fill="#0d1f3c" stroke="#3b82f6" stroke-width="1.5"/>
+  <!-- Memory icon (cylinder) -->
+  <ellipse cx="540" cy="295" rx="14" ry="5" fill="none" stroke="#3b82f6" stroke-width="1.5"/>
+  <line x1="526" y1="295" x2="526" y2="315" stroke="#3b82f6" stroke-width="1.5"/>
+  <line x1="554" y1="295" x2="554" y2="315" stroke="#3b82f6" stroke-width="1.5"/>
+  <ellipse cx="540" cy="315" rx="14" ry="5" fill="none" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="562" y="298" class="label-main" font-size="12">AgentCore</text>
+  <text x="562" y="313" class="label-main" font-size="12">Memory</text>
+  <text x="520" y="335" class="label-sub">STM per session</text>
+  <text x="520" y="349" class="label-sub">LTM per user</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: AgentCore Gateway -->
+  <!-- ============================================================ -->
+  <rect x="720" y="120" width="160" height="110" rx="12" fill="#0d1f3c" stroke="#3b82f6" stroke-width="2" filter="url(#glow-blue)"/>
+  <!-- Gateway icon -->
+  <circle cx="750" cy="158" r="18" fill="none" stroke="#3b82f6" stroke-width="1.5"/>
+  <line x1="750" y1="144" x2="750" y2="172" stroke="#3b82f6" stroke-width="1.5"/>
+  <line x1="736" y1="158" x2="764" y2="158" stroke="#3b82f6" stroke-width="1.5"/>
+  <line x1="740" y1="148" x2="760" y2="168" stroke="#3b82f6" stroke-width="1"/>
+  <line x1="760" y1="148" x2="740" y2="168" stroke="#3b82f6" stroke-width="1"/>
+  <text x="775" y="148" class="label-main" font-size="13">AgentCore</text>
+  <text x="775" y="163" class="label-main" font-size="13">Gateway</text>
+  <text x="728" y="188" class="label-sub">MCP server</text>
+  <text x="728" y="202" class="label-sub">Cognito authorizer</text>
+  <text x="728" y="216" class="label-sub">validates access token</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: AgentCore Identity -->
+  <!-- ============================================================ -->
+  <rect x="720" y="270" width="160" height="90" rx="12" fill="#0d1f3c" stroke="#3b82f6" stroke-width="1.5"/>
+  <!-- Identity icon (person) -->
+  <circle cx="748" cy="292" r="8" fill="none" stroke="#3b82f6" stroke-width="1.5"/>
+  <path d="M734 318 Q734 305 748 305 Q762 305 762 318" fill="none" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="768" y="295" class="label-main" font-size="12">AgentCore</text>
+  <text x="768" y="310" class="label-main" font-size="12">Identity</text>
+  <text x="728" y="332" class="label-sub">workload token</text>
+  <text x="728" y="346" class="label-sub">M2M OAuth flows</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: Lambda Tools -->
+  <!-- ============================================================ -->
+  <rect x="1030" y="120" width="190" height="100" rx="12" fill="#0a1f14" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="1050" y="148" font-size="22" fill="#4ade80" font-weight="700">λ</text>
+  <text x="1075" y="148" class="label-main" font-size="13">Lambda Tools</text>
+  <text x="1040" y="168" class="label-sub">direct ARN invoke</text>
+  <text x="1040" y="182" class="label-sub">no API GW in middle</text>
+  <text x="1040" y="196" class="label-sub">tool_1() tool_2() ...</text>
+  <text x="1040" y="210" class="label-sub">userId in context</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: DynamoDB -->
+  <!-- ============================================================ -->
+  <rect x="1030" y="260" width="190" height="70" rx="12" fill="#0a1f14" stroke="#4ade80" stroke-width="1.5"/>
+  <ellipse cx="1060" cy="285" rx="14" ry="5" fill="none" stroke="#4ade80" stroke-width="1.5"/>
+  <line x1="1046" y1="285" x2="1046" y2="305" stroke="#4ade80" stroke-width="1.5"/>
+  <line x1="1074" y1="285" x2="1074" y2="305" stroke="#4ade80" stroke-width="1.5"/>
+  <ellipse cx="1060" cy="305" rx="14" ry="5" fill="none" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="1082" y="290" class="label-main" font-size="12">DynamoDB</text>
+  <text x="1040" y="318" class="label-sub">user-scoped data</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: S3 -->
+  <!-- ============================================================ -->
+  <rect x="1030" y="370" width="190" height="70" rx="12" fill="#0a1f14" stroke="#4ade80" stroke-width="1.5"/>
+  <!-- S3 bucket icon -->
+  <ellipse cx="1060" cy="393" rx="14" ry="5" fill="none" stroke="#4ade80" stroke-width="1.5"/>
+  <rect x="1046" y="393" width="28" height="20" fill="none" stroke="#4ade80" stroke-width="1.5"/>
+  <ellipse cx="1060" cy="413" rx="14" ry="5" fill="none" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="1082" y="398" class="label-main" font-size="12">S3</text>
+  <text x="1040" y="418" class="label-sub">files / images</text>
+  <text x="1040" y="432" class="label-sub">user-scoped prefix</text>
+
+  <!-- ============================================================ -->
+  <!-- NODE: External APIs -->
+  <!-- ============================================================ -->
+  <rect x="1030" y="480" width="190" height="70" rx="12" fill="#0a1f14" stroke="#4ade80" stroke-width="1.5"/>
+  <circle cx="1060" cy="510" r="14" fill="none" stroke="#4ade80" stroke-width="1.5"/>
+  <line x1="1046" y1="510" x2="1074" y2="510" stroke="#4ade80" stroke-width="1"/>
+  <path d="M1050 500 Q1060 495 1070 500" fill="none" stroke="#4ade80" stroke-width="1"/>
+  <path d="M1050 520 Q1060 525 1070 520" fill="none" stroke="#4ade80" stroke-width="1"/>
+  <text x="1082" y="506" class="label-main" font-size="12">External APIs</text>
+  <text x="1040" y="524" class="label-sub">3rd party services</text>
+  <text x="1040" y="538" class="label-sub">token via Identity</text>
+
+  <!-- ============================================================ -->
+  <!-- ARROWS -->
+  <!-- ============================================================ -->
+
+  <!-- 1. Browser → Cognito (login) -->
+  <path d="M 110 280 L 110 380" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arrow-purple)" stroke-dasharray="5,3"/>
+  <text x="115" y="335" class="arrow-label" fill="#a78bfa">login</text>
+
+  <!-- 2. Cognito → Browser (tokens) -->
+  <path d="M 90 380 L 90 280" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arrow-purple)" stroke-dasharray="5,3"/>
+  <text x="40" y="335" class="arrow-label" fill="#a78bfa">tokens</text>
+
+  <!-- 3. Browser → API Gateway (HTTPS + JWT) -->
+  <path d="M 175 240 L 240 240" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="183" y="230" class="arrow-label-highlight">HTTPS + JWT</text>
+
+  <!-- 4. API Gateway → Lambda Proxy -->
+  <path d="M 310 290 L 310 370" stroke="#fb923c" stroke-width="1.5" fill="none" marker-end="url(#arrow-orange)"/>
+  <text x="315" y="335" class="arrow-label" fill="#fb923c">validated</text>
+  <text x="315" y="348" class="arrow-label" fill="#fb923c">request</text>
+
+  <!-- 5. Lambda Proxy → AgentCore Runtime (invoke_agent) -->
+  <path d="M 380 415 L 510 175" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="400" y="340" class="arrow-label-highlight">invoke_agent()</text>
+  <text x="400" y="354" class="arrow-label">sessionId + userId</text>
+
+  <!-- 6. AgentCore Runtime ↔ AgentCore Memory -->
+  <path d="M 590 230 L 590 270" stroke="#3b82f6" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M 600 270 L 600 230" stroke="#3b82f6" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="610" y="255" class="arrow-label" fill="#3b82f6">read/write</text>
+
+  <!-- 7. AgentCore Runtime → AgentCore Gateway (MCP list+invoke) -->
+  <path d="M 670 175 L 720 175" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="672" y="165" class="arrow-label-highlight">MCP list tools</text>
+  <text x="672" y="190" class="arrow-label-highlight">+ invoke tool</text>
+
+  <!-- 8. AgentCore Runtime ↔ AgentCore Identity -->
+  <path d="M 670 310 L 720 310" stroke="#3b82f6" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="672" y="303" class="arrow-label" fill="#3b82f6">workload token</text>
+
+  <!-- 9. AgentCore Gateway → Lambda Tools (direct ARN) -->
+  <path d="M 880 175 L 1030 175" stroke="#4ade80" stroke-width="2" fill="none" marker-end="url(#arrow-green)"/>
+  <text x="890" y="165" class="arrow-label" fill="#4ade80">direct Lambda ARN</text>
+  <text x="890" y="180" class="arrow-label" fill="#4ade80">no API GW hop</text>
+
+  <!-- 10. Lambda Tools → DynamoDB -->
+  <path d="M 1125 220 L 1125 260" stroke="#4ade80" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
+
+  <!-- 11. Lambda Tools → S3 -->
+  <path d="M 1145 220 L 1175 370" stroke="#4ade80" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
+
+  <!-- 12. Lambda Tools → External APIs -->
+  <path d="M 1105 220 L 1080 480" stroke="#4ade80" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
+
+  <!-- 13. AgentCore Gateway ↔ Cognito (validate token) -->
+  <path d="M 800 230 Q 800 460 175 430" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arrow-purple)" stroke-dasharray="5,3"/>
+  <text x="480" y="460" class="arrow-label" fill="#a78bfa">validate access token</text>
+
+  <!-- ============================================================ -->
+  <!-- STEP BADGES -->
+  <!-- ============================================================ -->
+
+  <!-- Step 1 -->
+  <circle cx="110" cy="310" r="11" class="step-circle"/>
+  <text x="110" y="314" text-anchor="middle" class="step-num">1</text>
+
+  <!-- Step 2 -->
+  <circle cx="207" cy="232" r="11" class="step-circle"/>
+  <text x="207" y="236" text-anchor="middle" class="step-num">2</text>
+
+  <!-- Step 3 -->
+  <circle cx="310" cy="330" r="11" class="step-circle"/>
+  <text x="310" y="334" text-anchor="middle" class="step-num">3</text>
+
+  <!-- Step 4 -->
+  <circle cx="430" cy="370" r="11" class="step-circle"/>
+  <text x="430" y="374" text-anchor="middle" class="step-num">4</text>
+
+  <!-- Step 5 -->
+  <circle cx="695" cy="168" r="11" class="step-circle"/>
+  <text x="695" y="172" text-anchor="middle" class="step-num">5</text>
+
+  <!-- Step 6 -->
+  <circle cx="955" cy="168" r="11" class="step-circle"/>
+  <text x="955" y="172" text-anchor="middle" class="step-num">6</text>
+
+  <!-- ============================================================ -->
+  <!-- LEGEND / NOTES -->
+  <!-- ============================================================ -->
+  <rect x="30" y="590" width="950" height="120" rx="10" class="legend-box"/>
+  <text x="50" y="612" class="legend-title">Key Design Decisions</text>
+
+  <circle cx="60" cy="632" r="4" fill="#38bdf8"/>
+  <text x="72" y="636" class="legend-text">JWT flows from browser all the way through — API Gateway validates it, Lambda extracts userId, agent passes it to tools for user-scoped data access</text>
+
+  <circle cx="60" cy="652" r="4" fill="#4ade80"/>
+  <text x="72" y="656" class="legend-text">Lambda tools invoked via direct ARN — no API Gateway in the middle, no custom domain, no cyclic CloudFormation dependency</text>
+
+  <circle cx="60" cy="672" r="4" fill="#a78bfa"/>
+  <text x="72" y="676" class="legend-text">AgentCore Gateway validates the user's Cognito access token — one authorizer, one token, consistent identity chain end-to-end</text>
+
+  <circle cx="60" cy="692" r="4" fill="#3b82f6"/>
+  <text x="72" y="696" class="legend-text">AgentCore Identity handles M2M OAuth for external APIs — agent never stores credentials, workload token is short-lived and scoped</text>
+
+</svg>
+</body>
+</html>

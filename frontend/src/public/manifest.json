@@ -1,0 +1,16 @@
+{
+  "name": "GlucoAI Monitoring System",
+  "short_name": "GlucoAI",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1E3A8A",
+  "theme_color": "#4F46E5",
+  "description": "AI-Powered Glucose Monitoring with AWS",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩺</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}
