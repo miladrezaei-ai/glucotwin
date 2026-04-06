@@ -62,6 +62,7 @@ export default function GlucoseMonitoringApp() {
   const [selectedFoodFile, setSelectedFoodFile] = useState(null); // preview before upload
   const [uploadedDataset, setUploadedDataset] = useState(null);
   const [sessionId, setSessionId] = useState(null);
+  const [chatHistory, setChatHistory] = useState([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState('2025-10-14');
   const [medicationMarkers, setMedicationMarkers] = useState([]);
@@ -157,12 +158,23 @@ export default function GlucoseMonitoringApp() {
   const fetchGlucoseData = async () => {
     try {
       const response = await fetch(FETCH_DATA_URL);
-      const result = await response.json();
+      const raw = await response.json();
+
+      // Unwrap API Gateway proxy response (body may be a stringified JSON)
+      const result = raw.body
+        ? (typeof raw.body === 'string' ? JSON.parse(raw.body) : raw.body)
+        : raw;
   
       if (!result.data?.length) return;
   
-      // ✅ Filter by selected date (timezone-safe)
-      const filteredData = result.data.filter(item => {
+      // Normalize: support both `timestamp` and `time` field names
+      const normalizedData = result.data.map(item => ({
+        ...item,
+        time: item.time ?? item.timestamp,
+      }));
+
+      // Filter by selected date (timezone-safe)
+      const filteredData = normalizedData.filter(item => {
         const itemDate = new Date(item.time).toISOString().split('T')[0];
         return itemDate === selectedDate;
       });
@@ -794,6 +806,7 @@ export default function GlucoseMonitoringApp() {
           message: inputMessage,
           sessionId: sessionId || undefined,
           userId: userId,
+          history: chatHistory,
         }),
       });
   
@@ -801,15 +814,24 @@ export default function GlucoseMonitoringApp() {
       console.log('🟡 Status:', response.status);
       console.log('🟡 Status Text:', response.statusText);
   
-      const data = await response.json();
+      const raw = await response.json();
       
+      // Unwrap API Gateway proxy response if body is a stringified JSON
+      const data = raw.body
+        ? (typeof raw.body === 'string' ? JSON.parse(raw.body) : raw.body)
+        : raw;
+
       console.log('🟠 Data parsed:', data);
   
       if (data.sessionId && !sessionId) {
         setSessionId(data.sessionId);
         console.log('🔑 Session ID set:', data.sessionId);
       }
-  
+
+      if (data.history) {
+        setChatHistory(data.history);
+      }
+
       const botMsg = {
         type: 'bot',
         text: data.reply || 'Sorry, I encountered an error.',
