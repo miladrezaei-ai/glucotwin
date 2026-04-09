@@ -1,10 +1,67 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './amplify-config'; 
 import { Activity, MessageSquare, TrendingUp, AlertCircle, LogOut, Mic, Send, Camera, Upload, Pill, Plus, Trash2 } from 'lucide-react';
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from 'recharts';
+import { ComposedChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
 import { signIn, signOut, getCurrentUser, signUp, confirmSignUp } from 'aws-amplify/auth';
+
+/** Minutes since midnight; stable sort key so the chart X-axis is always chronological (Recharts category order can scramble with duplicate times / multiple series). */
+function parseChartTimeToMinutes(timeStr) {
+  if (timeStr == null || typeof timeStr !== 'string') return 0;
+  const parts = timeStr.trim().split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (Number.isNaN(h)) return 0;
+  return h * 60 + (Number.isNaN(m) ? 0 : m);
+}
+
+/** Fractional minutes since local midnight — unique X position for each reading (sub-minute resolution). */
+function dateToTimeMinutes(date) {
+  return (
+    date.getHours() * 60 +
+    date.getMinutes() +
+    date.getSeconds() / 60 +
+    date.getMilliseconds() / 60000
+  );
+}
+
+/** 24-hour clock only: hours 00–23 (after noon → 13, 14, … 23 — never 1–12 with AM/PM). */
+function format24HourHMSFromDate(d) {
+  const h = d.getHours();
+  const mi = d.getMinutes();
+  const s = d.getSeconds();
+  return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/** Format fractional minutes since midnight as HH:MM (24-hour). */
+function format24HourHMFromMinutes(mins) {
+  const t = Math.max(0, Math.floor(mins));
+  if (t >= 24 * 60) return '24:00';
+  const h = Math.floor(t / 60);
+  const m = t % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/** Human label so “morning → night” is obvious next to the clock time. */
+function timeOfDayLabel(hour) {
+  if (hour >= 5 && hour < 12) return 'Morning';
+  if (hour >= 12 && hour < 17) return 'Afternoon';
+  if (hour >= 17 && hour < 22) return 'Evening';
+  return 'Night';
+}
+
+/** Stable sort: earlier in the day = smaller x (left on chart). */
+function chartPointSortKey(d) {
+  if (d.fullDateTime) {
+    const ms = new Date(d.fullDateTime).getTime();
+    if (!Number.isNaN(ms)) return ms;
+  }
+  return (d.timeMinutes ?? parseChartTimeToMinutes(d.time)) * 60000;
+}
+
+/** Calendar day always shown on the dashboard glucose chart. */
+const CHART_VIEW_DATE = '2026-04-14';
 
 export default function GlucoseMonitoringApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -64,7 +121,7 @@ export default function GlucoseMonitoringApp() {
   const [sessionId, setSessionId] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState('2025-10-14');
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [medicationMarkers, setMedicationMarkers] = useState([]);
   const [foodMarkers, setFoodMarkers] = useState([]);  
   const [profile, setProfile] = useState({
@@ -105,6 +162,16 @@ export default function GlucoseMonitoringApp() {
   const CHAT_AI_URL = `${API_BASE_URL}/chat`;
 
 
+  const glucoseChartData = useMemo(() => {
+    return [...glucoseData]
+      .map((d) => ({
+        ...d,
+        timeMinutes:
+          typeof d.timeMinutes === 'number' ? d.timeMinutes : parseChartTimeToMinutes(d.time),
+      }))
+      .sort((a, b) => chartPointSortKey(a) - chartPointSortKey(b));
+  }, [glucoseData]);
+
   const currentGlucose = glucoseData[glucoseData.length - 1]?.glucose;
   const avgGlucose = Math.round(glucoseData.reduce((acc, val) => acc + val.glucose, 0) / glucoseData.length);
   const S3_BUCKET_URL = 'https://glucoai-food-images.s3.eu-central-1.amazonaws.com/';
@@ -119,7 +186,7 @@ export default function GlucoseMonitoringApp() {
     if (isLoggedIn && activeTab === 'dashboard') {
       fetchGlucoseData();
     }
-  }, [isLoggedIn, activeTab, selectedDate]);  // ✅ Added selectedDate
+  }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -157,26 +224,103 @@ export default function GlucoseMonitoringApp() {
 
   const fetchGlucoseData = async () => {
     try {
-      const response = await fetch(FETCH_DATA_URL);
+      const userId = 'sdfdsf';
+      const toYmd = (d) => d.toISOString().split('T')[0];
+      const addDays = (ymd, days) => {
+        const d = new Date(`${ymd}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + days);
+        return toYmd(d);
+      };
+
+      // Backend expects POST with a date range (YYYY-MM-DD)
+      const response = await fetch(FETCH_DATA_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          startDate: CHART_VIEW_DATE,
+          endDate: CHART_VIEW_DATE,
+        }),
+      });
+      // If the API is unavailable (e.g., 404), clear the chart instead of showing demo defaults.
+      if (!response.ok) {
+        setGlucoseData([]);
+        setMedicationMarkers([]);
+        setFoodMarkers([]);
+        return;
+      }
+
       const raw = await response.json();
 
       // Unwrap API Gateway proxy response (body may be a stringified JSON)
-      const result = raw.body
+      let result = raw.body
         ? (typeof raw.body === 'string' ? JSON.parse(raw.body) : raw.body)
         : raw;
   
-      if (!result.data?.length) return;
+      if (!result.data?.length) {
+        // Fallback: wider range, then keep only readings on CHART_VIEW_DATE
+        const fallbackStart = addDays(CHART_VIEW_DATE, -3650);
+        const fallbackResp = await fetch(FETCH_DATA_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            startDate: fallbackStart,
+            endDate: CHART_VIEW_DATE,
+          }),
+        });
+
+        if (fallbackResp.ok) {
+          const fallbackRaw = await fallbackResp.json();
+          const fallbackResult = fallbackRaw.body
+            ? (typeof fallbackRaw.body === 'string' ? JSON.parse(fallbackRaw.body) : fallbackRaw.body)
+            : fallbackRaw;
+
+          const fallbackData = fallbackResult.data || [];
+          if (fallbackData.length) {
+            const normalizedFallback = fallbackData.map((item) => {
+              let t = item.time ?? item.timestamp;
+              if (typeof t === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t)) {
+                t = `${t}:00Z`;
+              }
+              return { ...item, time: t };
+            });
+            const onChartDay = normalizedFallback.filter((item) => {
+              const itemDate = new Date(item.time).toISOString().split('T')[0];
+              return itemDate === CHART_VIEW_DATE;
+            });
+            if (onChartDay.length) {
+              result = { data: onChartDay };
+            }
+          }
+        }
+
+        if (!result.data?.length) {
+          setGlucoseData([]);
+          setMedicationMarkers([]);
+          setFoodMarkers([]);
+          return;
+        }
+      }
   
       // Normalize: support both `timestamp` and `time` field names
-      const normalizedData = result.data.map(item => ({
-        ...item,
-        time: item.time ?? item.timestamp,
-      }));
+      const normalizedData = result.data.map(item => {
+        let t = item.time ?? item.timestamp;
+        // If backend returns "YYYY-MM-DDTHH:MM" (no timezone), force UTC to avoid
+        // timezone-dependent filtering issues.
+        if (typeof t === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t)) {
+          t = `${t}:00Z`;
+        }
+        return {
+          ...item,
+          time: t,
+        };
+      });
 
-      // Filter by selected date (timezone-safe)
+      // Filter by chart day (timezone-safe)
       const filteredData = normalizedData.filter(item => {
         const itemDate = new Date(item.time).toISOString().split('T')[0];
-        return itemDate === selectedDate;
+        return itemDate === CHART_VIEW_DATE;
       });
   
       if (filteredData.length === 0) {
@@ -186,52 +330,27 @@ export default function GlucoseMonitoringApp() {
         return;
       }
   
-      const hourlyGroups = {};
-      
-      filteredData.forEach((item) => {
-        const date = new Date(item.time);
-        const hour = date.getHours();
-        const hourKey = `${hour.toString().padStart(2, '0')}:00`;
-        
-        if (!hourlyGroups[hourKey]) {
-          hourlyGroups[hourKey] = {
-            glucoseValues: [],
-            timestamps: [],
-            fullDateTime: item.time
-          };
-        }
-        
-        hourlyGroups[hourKey].glucoseValues.push(item.glucose);
-        hourlyGroups[hourKey].timestamps.push(item.time);
-      });
-  
-      const chartData = Object.keys(hourlyGroups)
-        .sort((a, b) => {
-          const hourA = parseInt(a.split(':')[0]);
-          const hourB = parseInt(b.split(':')[0]);
-          return hourA - hourB;
-        })
-        .map(hourKey => {
-          const group = hourlyGroups[hourKey];
-          const avgGlucose = Math.round(
-            group.glucoseValues.reduce((sum, val) => sum + val, 0) / group.glucoseValues.length
-          );
-          
-          const fullDate = new Date(group.fullDateTime);
-          const dateStr = fullDate.toLocaleDateString('en-GB', {
+      // One point per reading (no hourly averaging) so all DB samples appear on the chart
+      const chartData = filteredData
+        .map((item) => {
+          const d = new Date(item.time);
+          const timeMinutes = dateToTimeMinutes(d);
+          const timeLabel = format24HourHMSFromDate(d);
+          const dateStr = d.toLocaleDateString('en-GB', {
             day: '2-digit',
-            month: 'short'
+            month: 'short',
           });
-  
           return {
-            time: hourKey,
-            dateStr: dateStr,
-            displayLabel: `${hourKey}\n${dateStr}`,
-            fullDateTime: group.fullDateTime,
-            glucose: avgGlucose,
+            time: timeLabel,
+            timeMinutes,
+            dateStr,
+            displayLabel: `${timeLabel}\n${dateStr}`,
+            fullDateTime: item.time,
+            glucose: item.glucose,
             target: 100,
           };
-        });
+        })
+        .sort((a, b) => a.timeMinutes - b.timeMinutes);
   
       // ✅ Process medications as separate markers
       const medicationMarkersTemp = [];
@@ -241,37 +360,32 @@ export default function GlucoseMonitoringApp() {
   
       if (medResult.data?.length) {
         medResult.data.forEach((med) => {
+          if (!med?.date) return;
           const medDateStr = med.date.split('T')[0];
           
-          if (medDateStr === selectedDate) {
+          if (medDateStr === CHART_VIEW_DATE) {
             const medDate = new Date(med.date);
             const medHour = medDate.getHours();
             const medMinutes = medDate.getMinutes();
-            
-            // Find closest glucose reading
-            const beforePoint = chartData.find(d => {
-              const dataHour = parseInt(d.time.split(':')[0]);
-              return dataHour <= medHour;
-            });
-            const afterPoint = chartData.find(d => {
-              const dataHour = parseInt(d.time.split(':')[0]);
-              return dataHour > medHour;
-            });
-      
+            const medMins = dateToTimeMinutes(medDate);
+            const glucoseOnly = chartData.filter((d) => !d.hasMedication && !d.hasFood);
+
+            const beforePoint = [...glucoseOnly].reverse().find((d) => d.timeMinutes <= medMins);
+            const afterPoint = glucoseOnly.find((d) => d.timeMinutes > medMins);
+
             let interpolatedGlucose = beforePoint?.glucose || 100;
-            if (beforePoint && afterPoint) {
-              const beforeHour = parseInt(beforePoint.time.split(':')[0]);
-              const afterHour = parseInt(afterPoint.time.split(':')[0]);
-              const hourDiff = afterHour - beforeHour;
-              const ratio = (medHour - beforeHour + medMinutes / 60) / hourDiff;
+            if (beforePoint && afterPoint && afterPoint.timeMinutes > beforePoint.timeMinutes) {
+              const ratio =
+                (medMins - beforePoint.timeMinutes) /
+                (afterPoint.timeMinutes - beforePoint.timeMinutes);
               interpolatedGlucose = Math.round(
                 beforePoint.glucose + (afterPoint.glucose - beforePoint.glucose) * ratio
               );
             }
-      
-            // ✅ Add to chartData (it will be rendered as part of the line)
+
             chartData.push({
               time: `${medHour.toString().padStart(2, '0')}:${medMinutes.toString().padStart(2, '0')}`,
+              timeMinutes: medMins,
               glucose: interpolatedGlucose,
               target: 100,
               hasMedication: true,
@@ -293,41 +407,36 @@ export default function GlucoseMonitoringApp() {
       
         if (foodResult.data?.length) {
           foodResult.data.forEach((food) => {
+            if (!food?.date) return;
             const foodDateStr = food.date.split('T')[0];
             
-            if (foodDateStr === selectedDate) {
+            if (foodDateStr === CHART_VIEW_DATE) {
               const foodDate = new Date(food.date);
               const foodHour = foodDate.getHours();
               const foodMinutes = foodDate.getMinutes();
-              
-              // Find closest glucose reading
-              const beforePoint = chartData.find(d => {
-                const dataHour = parseInt(d.time.split(':')[0]);
-                return dataHour <= foodHour;
-              });
-              const afterPoint = chartData.find(d => {
-                const dataHour = parseInt(d.time.split(':')[0]);
-                return dataHour > foodHour;
-              });
-      
+              const foodMins = dateToTimeMinutes(foodDate);
+              const glucoseOnly = chartData.filter((d) => !d.hasMedication && !d.hasFood);
+
+              const beforePoint = [...glucoseOnly].reverse().find((d) => d.timeMinutes <= foodMins);
+              const afterPoint = glucoseOnly.find((d) => d.timeMinutes > foodMins);
+
               let interpolatedGlucose = beforePoint?.glucose || 100;
-              if (beforePoint && afterPoint) {
-                const beforeHour = parseInt(beforePoint.time.split(':')[0]);
-                const afterHour = parseInt(afterPoint.time.split(':')[0]);
-                const hourDiff = afterHour - beforeHour;
-                const ratio = (foodHour - beforeHour + foodMinutes / 60) / hourDiff;
+              if (beforePoint && afterPoint && afterPoint.timeMinutes > beforePoint.timeMinutes) {
+                const ratio =
+                  (foodMins - beforePoint.timeMinutes) /
+                  (afterPoint.timeMinutes - beforePoint.timeMinutes);
                 interpolatedGlucose = Math.round(
                   beforePoint.glucose + (afterPoint.glucose - beforePoint.glucose) * ratio
                 );
               }
-      
-              // ✅ Add to chartData
+
               chartData.push({
                 time: `${foodHour.toString().padStart(2, '0')}:${foodMinutes.toString().padStart(2, '0')}`,
+                timeMinutes: foodMins,
                 glucose: interpolatedGlucose,
                 target: 100,
                 hasFood: true,
-                foodDescription: food.description,
+                foodDescription: food.description ?? food.notes ?? '',
                 foodImage: food.imageUrl,
               });
       
@@ -339,12 +448,7 @@ export default function GlucoseMonitoringApp() {
         console.error("🍔 Error fetching food entries:", error);
       }
   
-      // ✅ Sort chart data by time only
-      chartData.sort((a, b) => {
-        const timeA = a.time.split(':').map(Number);
-        const timeB = b.time.split(':').map(Number);
-        return (timeA[0] * 60 + (timeA[1] || 0)) - (timeB[0] * 60 + (timeB[1] || 0));
-      });
+      chartData.sort((a, b) => chartPointSortKey(a) - chartPointSortKey(b));
   
       console.log('🩸 Sample glucose data:', chartData[0]);
       console.log('💊 Medication markers:', medicationMarkersTemp);
@@ -357,6 +461,9 @@ export default function GlucoseMonitoringApp() {
   
     } catch (error) {
       console.error("Error fetching glucose data:", error);
+      setGlucoseData([]);
+      setMedicationMarkers([]);
+      setFoodMarkers([]);
     }
   };
 
@@ -457,16 +564,35 @@ export default function GlucoseMonitoringApp() {
       const result = await response.json();
       
       if (response.ok) {
-        const profileMessage = `Please remember my health profile: I am ${profile.fullName}, ${profile.age} years old, with ${profile.diabetesType} diabetes, diagnosed in ${profile.diagnosisYear}. My weight is ${profile.weight}kg and my height is ${profile.height}cm.`;
+        // Send a structured memory update to the agent so long-term memory strategies
+        // can reliably extract/store the user's profile.
+        const profileMessage =
+`MEMORY_UPDATE:PROFILE
+Please save/update my health profile with these fields:
+- fullName: ${profile.fullName || ''}
+- age: ${profile.age || ''}
+- diabetesType: ${profile.diabetesType || ''}
+- diagnosisYear: ${profile.diagnosisYear || ''}
+- weightKg: ${profile.weight || ''}
+- heightCm: ${profile.height || ''}`;
         
         try {
           await fetch(CHAT_AI_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              userId,
+              sessionId,
               message: profileMessage,
-              sessionId: sessionId,
-              userId: userId
+              metadata: { source: 'profile', type: 'profile_update' },
+              payload: {
+                fullName: profile.fullName,
+                age: profile.age,
+                diabetesType: profile.diabetesType,
+                diagnosisYear: profile.diagnosisYear,
+                weightKg: profile.weight,
+                heightCm: profile.height,
+              }
             })
           });
           
@@ -1094,12 +1220,12 @@ export default function GlucoseMonitoringApp() {
           <p className="text-sm text-gray-500 mt-1">mg/dL</p>
         </div>
       </div>
-      {/* ✅ ADD THIS DATE FILTER */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h3 className="text-lg font-bold text-gray-900">Select Date</h3>
-          <div className="flex items-center gap-3">
+          <h3 className="text-lg font-bold text-gray-900">Select date</h3>
+          <div className="flex items-center gap-3 flex-wrap">
             <button
+              type="button"
               onClick={() => {
                 const yesterday = new Date(selectedDate);
                 yesterday.setDate(yesterday.getDate() - 1);
@@ -1109,7 +1235,7 @@ export default function GlucoseMonitoringApp() {
             >
               ← Previous
             </button>
-            
+
             <input
               type="date"
               value={selectedDate}
@@ -1117,8 +1243,9 @@ export default function GlucoseMonitoringApp() {
               max={new Date().toISOString().split('T')[0]}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
             />
-            
+
             <button
+              type="button"
               onClick={() => {
                 const tomorrow = new Date(selectedDate);
                 tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1131,8 +1258,9 @@ export default function GlucoseMonitoringApp() {
             >
               Next →
             </button>
-            
+
             <button
+              type="button"
               onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
             >
@@ -1140,25 +1268,35 @@ export default function GlucoseMonitoringApp() {
             </button>
           </div>
         </div>
-        
+
         <p className="text-sm text-gray-600 mt-2">
-          Viewing: <span className="font-semibold">{new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          Viewing:{' '}
+          <span className="font-semibold">
+            {new Date(`${selectedDate}T12:00:00`).toLocaleDateString('en-US', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </span>
         </p>
       </div>
-      {/* ✅ END OF DATE FILTER */}
 
 
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4">
           <h3 className="text-lg font-bold text-gray-900">
             Glucose Levels
           </h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Earlier times on the left, later on the right (same calendar day).
+          </p>
         </div>
         
         {glucoseData.length > 0 ? (
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={glucoseData}>
+              <ComposedChart data={glucoseChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
                 <defs>
                   <linearGradient id="colorGlucose" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
@@ -1167,24 +1305,42 @@ export default function GlucoseMonitoringApp() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                 <XAxis 
-                  dataKey="time"
+                  type="number"
+                  dataKey="timeMinutes"
+                  domain={['dataMin', 'dataMax']}
+                  scale="linear"
+                  tickFormatter={(mins) => format24HourHMFromMinutes(mins)}
                   stroke="#6B7280" 
                   angle={-45}
                   textAnchor="end"
                   height={80}
                   tick={{ fontSize: 12 }}
-                  interval={'preserveStartEnd'}
-                  allowDuplicatedCategory={false}  // ✅ This removes duplicates
                 />
                 <YAxis stroke="#6B7280" domain={[60, 250]} />
                 <Tooltip 
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       const data = payload[0].payload;
+                      const d = data.fullDateTime
+                        ? new Date(data.fullDateTime)
+                        : null;
+                      const hour = d ? d.getHours() : Math.floor((data.timeMinutes ?? 0) / 60) % 24;
+                      const wall12 = d
+                        ? d.toLocaleTimeString(undefined, {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: true,
+                          })
+                        : null;
                       return (
-                        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-                          <p className="text-sm font-semibold">{data.time}</p>
-                          {data.glucose && <p className="text-sm text-blue-600">Glucose: {data.glucose} mg/dL</p>}
+                        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg max-w-xs">
+                          <p className="text-sm font-semibold">{data.time} <span className="text-gray-500 font-normal">(24h)</span></p>
+                          {wall12 && (
+                            <p className="text-xs text-gray-600">{wall12}</p>
+                          )}
+                          <p className="text-xs font-medium text-indigo-600 mt-0.5">{timeOfDayLabel(hour)}</p>
+                          {data.glucose && <p className="text-sm text-blue-600 mt-1">Glucose: {data.glucose} mg/dL</p>}
                         </div>
                       );
                     }
@@ -1198,18 +1354,23 @@ export default function GlucoseMonitoringApp() {
                   strokeWidth={3} 
                   fill="url(#colorGlucose)"
                   connectNulls={true}
-                  data={glucoseData.filter(d => !d.hasMedication && !d.hasFood)}  // ✅ Exclude med/food from line
+                  data={glucoseChartData.filter(d => !d.hasMedication && !d.hasFood)}  // ✅ Exclude med/food from line
+                  dot={false}
+                />
+
+                {/* Markers at meal/med times (including hours with no glucose bucket) — invisible stroke, icons only */}
+                <Line
+                  type="monotone"
+                  dataKey="glucose"
+                  data={glucoseChartData.filter(d => d.hasFood || d.hasMedication)}
+                  stroke="none"
+                  strokeWidth={0}
                   dot={(props) => {
-                    const { cx, cy, payload, index } = props;
-                    
-                    // Find if there's medication/food at this exact time
-                    const medAtTime = glucoseData.find(d => d.hasMedication && d.time === payload.time);
-                    const foodAtTime = glucoseData.find(d => d.hasFood && d.time === payload.time);
-                    
-                    if (medAtTime) {
+                    const { cx, cy, payload } = props;
+                    if (payload.hasMedication) {
                       return (
                         <g
-                          onClick={() => alert(`💊 ${medAtTime.medication}\nDosage: ${medAtTime.dosage}`)}
+                          onClick={() => alert(`💊 ${payload.medication}\nDosage: ${payload.dosage}`)}
                           style={{ cursor: 'pointer' }}
                         >
                           <circle cx={cx} cy={cy} r={8} fill="#9333EA" stroke="#fff" strokeWidth={2} />
@@ -1219,14 +1380,13 @@ export default function GlucoseMonitoringApp() {
                         </g>
                       );
                     }
-                    
-                    if (foodAtTime) {
+                    if (payload.hasFood) {
                       return (
                         <g
                           onClick={() => {
-                            const msg = `🍔 Food Logged\n\n${foodAtTime.foodDescription}\n\nClick OK to view image`;
-                            if (window.confirm(msg) && foodAtTime.foodImage) {
-                              window.open(foodAtTime.foodImage, '_blank');
+                            const msg = `🍔 Food Logged\n\n${payload.foodDescription}\n\nClick OK to view image`;
+                            if (window.confirm(msg) && payload.foodImage) {
+                              window.open(payload.foodImage, '_blank');
                             }
                           }}
                           style={{ cursor: 'pointer' }}
@@ -1238,9 +1398,10 @@ export default function GlucoseMonitoringApp() {
                         </g>
                       );
                     }
-                    
                     return null;
                   }}
+                  isAnimationActive={false}
+                  legendType="none"
                 />
 
                 <Line 
@@ -1251,7 +1412,7 @@ export default function GlucoseMonitoringApp() {
                   strokeDasharray="5 5" 
                   dot={false} 
                 />
-              </AreaChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         ) : (
