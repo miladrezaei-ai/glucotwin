@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './amplify-config'; 
 import { Activity, MessageSquare, TrendingUp, AlertCircle, LogOut, Mic, Send, Camera, Upload, Pill, Plus, Trash2 } from 'lucide-react';
-import { ComposedChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { ComposedChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from 'recharts';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
 import { signIn, signOut, getCurrentUser, signUp, confirmSignUp } from 'aws-amplify/auth';
@@ -43,6 +43,15 @@ function format24HourHMFromMinutes(mins) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+/** YYYY-MM-DD in the browser's local timezone (not UTC). Using UTC here dropped evening points that are still the same calendar day locally. */
+function localCalendarDateYMD(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** Human label so “morning → night” is obvious next to the clock time. */
 function timeOfDayLabel(hour) {
   if (hour >= 5 && hour < 12) return 'Morning';
@@ -51,7 +60,7 @@ function timeOfDayLabel(hour) {
   return 'Night';
 }
 
-/** Stable sort: earlier in the day = smaller x (left on chart). */
+/** Stable sort: use epoch ms from fullDateTime whenever present (glucose + meal/med markers). */
 function chartPointSortKey(d) {
   if (d.fullDateTime) {
     const ms = new Date(d.fullDateTime).getTime();
@@ -171,6 +180,31 @@ export default function GlucoseMonitoringApp() {
       }))
       .sort((a, b) => chartPointSortKey(a) - chartPointSortKey(b));
   }, [glucoseData]);
+
+  /** Recharts default ticks often end on a "round" time (e.g. 08:00) while data runs to 08:35 — looks "cut off". Pin domain + ticks to actual CGM range. */
+  const chartTimeAxis = useMemo(() => {
+    const pts = glucoseChartData;
+    if (pts.length === 0) return { domain: undefined, ticks: undefined };
+    const tms = pts.map((p) => p.timeMinutes ?? parseChartTimeToMinutes(p.time));
+    const rawMin = Math.min(...tms);
+    const rawMax = Math.max(...tms);
+    const span = rawMax - rawMin;
+    const pad = span < 1e-6 ? 5 : Math.max(1, span * 0.03);
+    const d0 = Math.max(0, rawMin - pad);
+    const d1 = rawMax + pad;
+    const nTicks = 12;
+    const ticks =
+      span < 1e-6
+        ? [d0, rawMin, d1]
+        : Array.from({ length: nTicks }, (_, i) => d0 + (i / (nTicks - 1)) * (d1 - d0));
+    return { domain: [d0, d1], ticks };
+  }, [glucoseChartData]);
+
+  /** Meals/meds plotted separately from CGM line (same x/y scale). */
+  const scatterMealsAndMeds = useMemo(
+    () => [...medicationMarkers, ...foodMarkers],
+    [medicationMarkers, foodMarkers]
+  );
 
   const currentGlucose = glucoseData[glucoseData.length - 1]?.glucose;
   const avgGlucose = Math.round(glucoseData.reduce((acc, val) => acc + val.glucose, 0) / glucoseData.length);
@@ -317,10 +351,11 @@ export default function GlucoseMonitoringApp() {
         };
       });
 
-      // Filter by chart day (timezone-safe)
-      const filteredData = normalizedData.filter(item => {
-        const itemDate = new Date(item.time).toISOString().split('T')[0];
-        return itemDate === CHART_VIEW_DATE;
+      // Filter by chart day using local calendar date (matches how users think about "14 Apr")
+      const filteredData = normalizedData.filter((item) => {
+        const d = new Date(item.time);
+        if (Number.isNaN(d.getTime())) return false;
+        return localCalendarDateYMD(d) === CHART_VIEW_DATE;
       });
   
       if (filteredData.length === 0) {
@@ -368,10 +403,8 @@ export default function GlucoseMonitoringApp() {
             const medHour = medDate.getHours();
             const medMinutes = medDate.getMinutes();
             const medMins = dateToTimeMinutes(medDate);
-            const glucoseOnly = chartData.filter((d) => !d.hasMedication && !d.hasFood);
-
-            const beforePoint = [...glucoseOnly].reverse().find((d) => d.timeMinutes <= medMins);
-            const afterPoint = glucoseOnly.find((d) => d.timeMinutes > medMins);
+            const beforePoint = [...chartData].reverse().find((d) => d.timeMinutes <= medMins);
+            const afterPoint = chartData.find((d) => d.timeMinutes > medMins);
 
             let interpolatedGlucose = beforePoint?.glucose || 100;
             if (beforePoint && afterPoint && afterPoint.timeMinutes > beforePoint.timeMinutes) {
@@ -383,16 +416,16 @@ export default function GlucoseMonitoringApp() {
               );
             }
 
-            chartData.push({
+            medicationMarkersTemp.push({
+              _marker: 'med',
               time: `${medHour.toString().padStart(2, '0')}:${medMinutes.toString().padStart(2, '0')}`,
               timeMinutes: medMins,
+              fullDateTime: med.date,
               glucose: interpolatedGlucose,
-              target: 100,
-              hasMedication: true,
               medication: med.medicationName,
               dosage: med.dosage,
             });
-      
+
             console.log(`✅ Added medication at: ${medHour}:${medMinutes}`);
           }
         });
@@ -415,10 +448,8 @@ export default function GlucoseMonitoringApp() {
               const foodHour = foodDate.getHours();
               const foodMinutes = foodDate.getMinutes();
               const foodMins = dateToTimeMinutes(foodDate);
-              const glucoseOnly = chartData.filter((d) => !d.hasMedication && !d.hasFood);
-
-              const beforePoint = [...glucoseOnly].reverse().find((d) => d.timeMinutes <= foodMins);
-              const afterPoint = glucoseOnly.find((d) => d.timeMinutes > foodMins);
+              const beforePoint = [...chartData].reverse().find((d) => d.timeMinutes <= foodMins);
+              const afterPoint = chartData.find((d) => d.timeMinutes > foodMins);
 
               let interpolatedGlucose = beforePoint?.glucose || 100;
               if (beforePoint && afterPoint && afterPoint.timeMinutes > beforePoint.timeMinutes) {
@@ -430,16 +461,16 @@ export default function GlucoseMonitoringApp() {
                 );
               }
 
-              chartData.push({
+              foodMarkersTemp.push({
+                _marker: 'food',
                 time: `${foodHour.toString().padStart(2, '0')}:${foodMinutes.toString().padStart(2, '0')}`,
                 timeMinutes: foodMins,
+                fullDateTime: food.date,
                 glucose: interpolatedGlucose,
-                target: 100,
-                hasFood: true,
                 foodDescription: food.description ?? food.notes ?? '',
                 foodImage: food.imageUrl,
               });
-      
+
               console.log(`✅ Added food at: ${foodHour}:${foodMinutes}`);
             }
           });
@@ -449,15 +480,29 @@ export default function GlucoseMonitoringApp() {
       }
   
       chartData.sort((a, b) => chartPointSortKey(a) - chartPointSortKey(b));
-  
+
+      if (chartData.length > 0) {
+        const first = chartData[0];
+        const last = chartData[chartData.length - 1];
+        console.info(
+          '[Glucose chart] CGM readings:',
+          chartData.length,
+          '| first:',
+          first.fullDateTime || first.time,
+          '| last:',
+          last.fullDateTime || last.time
+        );
+      }
+
       console.log('🩸 Sample glucose data:', chartData[0]);
-      console.log('💊 Medication markers:', medicationMarkersTemp);
 
       setGlucoseData(chartData);
-      
-      console.log("🩸 Total glucose points:", chartData.length);
-      console.log("💊 Total medication markers:", medicationMarkersTemp.length);
-      console.log("🍔 Total food markers:", foodMarkersTemp.length);
+      setMedicationMarkers(medicationMarkersTemp);
+      setFoodMarkers(foodMarkersTemp);
+
+      console.log('🩸 Total CGM points:', chartData.length);
+      console.log('💊 Medication markers:', medicationMarkersTemp.length);
+      console.log('🍔 Food markers:', foodMarkersTemp.length);
   
     } catch (error) {
       console.error("Error fetching glucose data:", error);
@@ -1289,14 +1334,14 @@ Please save/update my health profile with these fields:
             Glucose Levels
           </h3>
           <p className="text-sm text-gray-500 mt-1">
-            Earlier times on the left, later on the right (same calendar day).
+            Each dot is one CGM reading; the line connects them in time order. Meals 💊/🍔 are separate markers on the same scale.
           </p>
         </div>
         
         {glucoseData.length > 0 ? (
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={glucoseChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+              <ComposedChart data={glucoseChartData} margin={{ top: 8, right: 28, left: 8, bottom: 8 }}>
                 <defs>
                   <linearGradient id="colorGlucose" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
@@ -1307,7 +1352,8 @@ Please save/update my health profile with these fields:
                 <XAxis 
                   type="number"
                   dataKey="timeMinutes"
-                  domain={['dataMin', 'dataMax']}
+                  domain={chartTimeAxis.domain ?? ['dataMin', 'dataMax']}
+                  ticks={chartTimeAxis.ticks}
                   scale="linear"
                   tickFormatter={(mins) => format24HourHMFromMinutes(mins)}
                   stroke="#6B7280" 
@@ -1315,6 +1361,7 @@ Please save/update my health profile with these fields:
                   textAnchor="end"
                   height={80}
                   tick={{ fontSize: 12 }}
+                  allowDataOverflow={false}
                 />
                 <YAxis stroke="#6B7280" domain={[60, 250]} />
                 <Tooltip 
@@ -1348,61 +1395,63 @@ Please save/update my health profile with these fields:
                   }}
                 />
                 <Area 
-                  type="monotone" 
+                  type="linear"
                   dataKey="glucose" 
                   stroke="#3B82F6" 
-                  strokeWidth={3} 
+                  strokeWidth={2} 
                   fill="url(#colorGlucose)"
                   connectNulls={true}
-                  data={glucoseChartData.filter(d => !d.hasMedication && !d.hasFood)}  // ✅ Exclude med/food from line
-                  dot={false}
+                  data={glucoseChartData}
+                  isAnimationActive={false}
+                  dot={{ r: 3, fill: '#1d4ed8', stroke: '#eff6ff', strokeWidth: 1 }}
+                  activeDot={{ r: 5 }}
                 />
 
-                {/* Markers at meal/med times (including hours with no glucose bucket) — invisible stroke, icons only */}
-                <Line
-                  type="monotone"
-                  dataKey="glucose"
-                  data={glucoseChartData.filter(d => d.hasFood || d.hasMedication)}
-                  stroke="none"
-                  strokeWidth={0}
-                  dot={(props) => {
-                    const { cx, cy, payload } = props;
-                    if (payload.hasMedication) {
-                      return (
-                        <g
-                          onClick={() => alert(`💊 ${payload.medication}\nDosage: ${payload.dosage}`)}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <circle cx={cx} cy={cy} r={8} fill="#9333EA" stroke="#fff" strokeWidth={2} />
-                          <text x={cx} y={cy + 3} textAnchor="middle" fill="#fff" fontSize={10}>
-                            💊
-                          </text>
-                        </g>
-                      );
-                    }
-                    if (payload.hasFood) {
-                      return (
-                        <g
-                          onClick={() => {
-                            const msg = `🍔 Food Logged\n\n${payload.foodDescription}\n\nClick OK to view image`;
-                            if (window.confirm(msg) && payload.foodImage) {
-                              window.open(payload.foodImage, '_blank');
-                            }
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <circle cx={cx} cy={cy} r={8} fill="#10B981" stroke="#fff" strokeWidth={2} />
-                          <text x={cx} y={cy + 3} textAnchor="middle" fill="#fff" fontSize={10}>
-                            🍔
-                          </text>
-                        </g>
-                      );
-                    }
-                    return null;
-                  }}
-                  isAnimationActive={false}
-                  legendType="none"
-                />
+                {scatterMealsAndMeds.length > 0 && (
+                  <Scatter
+                    data={scatterMealsAndMeds}
+                    dataKey="glucose"
+                    fill="transparent"
+                    isAnimationActive={false}
+                    legendType="none"
+                    shape={(props) => {
+                      const { cx, cy, payload } = props;
+                      if (!payload || cx == null || cy == null) return null;
+                      if (payload._marker === 'med') {
+                        return (
+                          <g
+                            onClick={() => alert(`💊 ${payload.medication}\nDosage: ${payload.dosage}`)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <circle cx={cx} cy={cy} r={8} fill="#9333EA" stroke="#fff" strokeWidth={2} />
+                            <text x={cx} y={cy + 3} textAnchor="middle" fill="#fff" fontSize={10}>
+                              💊
+                            </text>
+                          </g>
+                        );
+                      }
+                      if (payload._marker === 'food') {
+                        return (
+                          <g
+                            onClick={() => {
+                              const msg = `🍔 Food Logged\n\n${payload.foodDescription}\n\nClick OK to view image`;
+                              if (window.confirm(msg) && payload.foodImage) {
+                                window.open(payload.foodImage, '_blank');
+                              }
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <circle cx={cx} cy={cy} r={8} fill="#10B981" stroke="#fff" strokeWidth={2} />
+                            <text x={cx} y={cy + 3} textAnchor="middle" fill="#fff" fontSize={10}>
+                              🍔
+                            </text>
+                          </g>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                )}
 
                 <Line 
                   type="monotone" 
